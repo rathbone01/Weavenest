@@ -15,6 +15,28 @@ public partial class Chat : IDisposable
 {
     [Parameter] public Guid? SessionId { get; set; }
 
+    private bool IsStreamingThisSession => _isStreaming && _currentSession?.Id == _streamingSessionId;
+
+    private string InputAdornmentIcon => IsStreamingThisSession
+        ? Icons.Material.Filled.Stop
+        : Icons.Material.Filled.Send;
+
+    private Color InputAdornmentColor => IsStreamingThisSession
+        ? Color.Error
+        : _isStreaming
+            ? Color.Default
+            : Color.Primary;
+
+    private string InputAdornmentLabel => IsStreamingThisSession ? "Stop" : "Send";
+
+    private async Task HandleAdornmentClick()
+    {
+        if (IsStreamingThisSession)
+            _streamingCts?.Cancel();
+        else
+            await SendMessage();
+    }
+
     private string SystemPromptTooltip => Settings.SystemPrompt is not null
         ? $"System prompt active: \"{Settings.SystemPrompt[..Math.Min(40, Settings.SystemPrompt.Length)]}...\""
         : "Configure system prompt";

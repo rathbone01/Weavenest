@@ -67,9 +67,10 @@
                       Sizing="InputSizing.Auto"
                       MaxLines="5"
                       Adornment="Adornment.End"
-                      AdornmentIcon="@Icons.Material.Filled.Send"
-                      AdornmentColor="@(_isStreaming ? Color.Default : Color.Primary)"
-                      OnAdornmentClick="SendMessage"
+                      AdornmentIcon="@InputAdornmentIcon"
+                      AdornmentColor="@InputAdornmentColor"
+                      AdornmentAriaLabel="@InputAdornmentLabel"
+                      OnAdornmentClick="HandleAdornmentClick"
                       OnKeyDown="HandleKeyDown"
                       Immediate="true" />
     </div>

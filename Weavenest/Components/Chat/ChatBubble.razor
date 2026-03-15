@@ -1,5 +1,6 @@
 @using Weavenest.DataAccess.Models
 @using Markdig
+@inject IJSRuntime JSRuntime
 
 <div class="chat-bubble">
     <div class="role-header">
@@ -26,7 +27,7 @@
             </button>
             @if (_thinkingExpanded)
             {
-                <div class="thinking-full">@Message.Thinking</div>
+                <div class="thinking-full" @ref="_thinkingFullEl">@Message.Thinking</div>
             }
             else
             {
@@ -64,7 +65,21 @@
     public bool IsStreaming { get; set; }
 
     private bool _thinkingExpanded;
+    private ElementReference _thinkingFullEl;
+
     private void ToggleThinking() => _thinkingExpanded = !_thinkingExpanded;
+
+    protected override async Task OnAfterRenderAsync(bool firstRender)
+    {
+        if (IsStreaming && _thinkingExpanded && !string.IsNullOrEmpty(Message.Thinking))
+        {
+            try
+            {
+                await JSRuntime.InvokeVoidAsync("chatInterop.scrollToBottom", _thinkingFullEl);
+            }
+            catch { /* ignore JS interop errors during disconnect */ }
+        }
+    }
 
     private string ThinkingPreview => Message.Thinking is { Length: > 120 }
         ? Message.Thinking[..120] + "…"
