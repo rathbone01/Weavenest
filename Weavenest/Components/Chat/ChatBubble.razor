@@ -1,0 +1,58 @@
+@using Weavenest.DataAccess.Models
+@using Markdig
+
+<div class="chat-bubble">
+    <div class="role-header">
+        <span class="role-label @RoleLabelClass">@RoleLabel</span>
+        <span class="message-timestamp">@Message.Timestamp.ToLocalTime().ToString("h:mm tt")</span>
+    </div>
+    <MudPaper Class="@($"chat-bubble-paper {PaperClass}")" Elevation="1">
+        @if (Message.Role == ChatRole.User)
+        {
+            <div class="message-content-plain">@Message.Content</div>
+        }
+        else
+        {
+            <div class="markdown-body">
+                @((MarkupString)RenderMarkdown(Message.Content))
+                @if (IsStreaming && string.IsNullOrEmpty(Message.Content))
+                {
+                    <span class="cursor-blink">|</span>
+                }
+            </div>
+            @if (IsStreaming && !string.IsNullOrEmpty(Message.Content))
+            {
+                <span class="cursor-blink streaming-cursor">|</span>
+            }
+        }
+    </MudPaper>
+</div>
+
+@code {
+    [Parameter, EditorRequired]
+    public ChatMessage Message { get; set; } = default!;
+
+    [Parameter]
+    public bool IsStreaming { get; set; }
+
+    private static readonly MarkdownPipeline _pipeline = new MarkdownPipelineBuilder()
+        .UseAdvancedExtensions()
+        .Build();
+
+    private string RoleLabel => Message.Role == ChatRole.User
+        ? "You"
+        : Message.ModelName is not null
+            ? $"Weavenest - {Message.ModelName}"
+            : "Weavenest";
+
+    private string RoleLabelClass => Message.Role == ChatRole.User
+        ? "role-label-user"
+        : "role-label-assistant";
+
+    private string PaperClass => Message.Role == ChatRole.User
+        ? "user-paper"
+        : "assistant-paper";
+
+    private static string RenderMarkdown(string content) =>
+        Markdown.ToHtml(content, _pipeline);
+}

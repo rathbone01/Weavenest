@@ -1,0 +1,5 @@
+<Solution>
+  <Project Path="Weavenest.DataAccess/Weavenest.DataAccess.csproj" />
+  <Project Path="Weavenest.Services/Weavenest.Services.csproj" />
+  <Project Path="Weavenest/Weavenest.csproj" />
+</Solution>

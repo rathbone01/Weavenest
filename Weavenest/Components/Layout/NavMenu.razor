@@ -1,0 +1,109 @@
+@using Weavenest.DataAccess.Models
+@using Weavenest.DataAccess.Repositories
+@using Weavenest.Services
+@inject IChatRepository ChatRepo
+@inject ChatStateNotifier StateNotifier
+@inject NavigationManager Navigation
+@inject IDialogService DialogService
+@implements IDisposable
+
+<div style="display: flex; flex-direction: column; flex: 1; min-height: 0;">
+    <div style="flex: 0 0 auto; padding: 8px;">
+        <MudButton Variant="Variant.Outlined"
+                   Color="Color.Primary"
+                   FullWidth="true"
+                   StartIcon="@Icons.Material.Filled.Add"
+                   OnClick="StartNewChat">
+            New Chat
+        </MudButton>
+    </div>
+
+    <div style="flex: 1; overflow-y: auto; min-height: 0;">
+        @if (_sessions.Any())
+        {
+            <MudNavMenu>
+                @foreach (var session in _sessions)
+                {
+                    <div class="nav-session-item">
+                        <MudNavLink Href="@($"/chat/{session.Id}")"
+                                    Match="NavLinkMatch.All"
+                                    Class="session-link">
+                            <div class="session-content">
+                                <MudText Typo="Typo.body2" Class="session-title">
+                                    @session.Title
+                                </MudText>
+                            </div>
+                        </MudNavLink>
+                        <MudIconButton Icon="@Icons.Material.Filled.Delete"
+                                       Size="Size.Small"
+                                       Color="Color.Error"
+                                       Class="delete-btn"
+                                       OnClick="@(() => DeleteSession(session.Id))" />
+                    </div>
+                }
+            </MudNavMenu>
+        }
+        else
+        {
+            <MudText Typo="Typo.caption" Class="pa-4" Style="opacity: 0.5;">
+                No chats yet. Start a new conversation!
+            </MudText>
+        }
+    </div>
+</div>
+
+@code {
+    private IReadOnlyList<ChatSession> _sessions = [];
+
+    protected override async Task OnInitializedAsync()
+    {
+        StateNotifier.OnSessionsChanged += OnSessionsChanged;
+        await RefreshSessions();
+    }
+
+    private async Task OnSessionsChanged()
+    {
+        await InvokeAsync(async () =>
+        {
+            await RefreshSessions();
+            StateHasChanged();
+        });
+    }
+
+    private async Task RefreshSessions()
+    {
+        _sessions = await ChatRepo.GetSessionsAsync();
+    }
+
+    private void StartNewChat()
+    {
+        Navigation.NavigateTo("/chat");
+    }
+
+    private async Task DeleteSession(Guid sessionId)
+    {
+        var confirmed = await DialogService.ShowMessageBoxAsync(
+            "Delete Chat",
+            "Are you sure you want to delete this chat?",
+            yesText: "Delete",
+            cancelText: "Cancel");
+
+        if (confirmed == true)
+        {
+            await ChatRepo.DeleteSessionAsync(sessionId);
+            await RefreshSessions();
+            StateHasChanged();
+
+            var currentUri = Navigation.Uri;
+            if (currentUri.Contains(sessionId.ToString()))
+            {
+                Navigation.NavigateTo("/chat");
+            }
+        }
+    }
+
+    public void Dispose()
+    {
+        StateNotifier.OnSessionsChanged -= OnSessionsChanged;
+    }
+}

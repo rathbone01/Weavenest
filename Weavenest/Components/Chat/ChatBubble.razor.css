@@ -1,0 +1,67 @@
+.chat-bubble {
+    display: flex;
+    flex-direction: column;
+    width: 100%;
+}
+
+.role-header {
+    display: flex;
+    align-items: baseline;
+    gap: 0.5rem;
+    padding: 0 0.25rem 0.25rem;
+}
+
+.role-label {
+    font-size: 0.75rem;
+    font-weight: 600;
+    text-transform: uppercase;
+    letter-spacing: 0.05em;
+}
+
+.role-label-user {
+    color: #9B59D0;
+}
+
+.role-label-assistant {
+    color: #CE93D8;
+}
+
+.message-timestamp {
+    font-size: 0.7rem;
+    opacity: 0.45;
+}
+
+.chat-bubble-paper {
+    padding: 0.75rem 1rem;
+    border-radius: 8px !important;
+    width: 100%;
+}
+
+::deep .user-paper {
+    background-color: rgba(123, 47, 190, 0.18) !important;
+}
+
+::deep .assistant-paper {
+    background-color: rgba(255, 255, 255, 0.04) !important;
+}
+
+.message-content-plain {
+    white-space: pre-wrap;
+    word-break: break-word;
+    font-size: 0.9375rem;
+    line-height: 1.6;
+}
+
+.cursor-blink {
+    animation: blink 1s step-end infinite;
+}
+
+.streaming-cursor {
+    display: inline-block;
+    margin-left: 1px;
+}
+
+@keyframes blink {
+    0%, 100% { opacity: 1; }
+    50% { opacity: 0; }
+}

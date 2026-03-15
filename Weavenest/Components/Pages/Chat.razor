@@ -1,0 +1,76 @@
+@page "/"
+@page "/chat/{SessionId:guid?}"
+@using Weavenest.DataAccess.Models
+@using Weavenest.DataAccess.Repositories
+@using Weavenest.Services
+@using Weavenest.Services.Interfaces
+@inject IOllamaService OllamaService
+@inject IChatRepository ChatRepo
+@inject ChatStateNotifier StateNotifier
+@inject CircuitSettings Settings
+@inject IDialogService DialogService
+@inject NavigationManager Navigation
+@inject IJSRuntime JSRuntime
+@inject ILogger<Chat> Logger
+@implements IDisposable
+
+<PageTitle>Chat - Weavenest</PageTitle>
+
+<div class="chat-container">
+    <div class="chat-header">
+        <MudSelect T="string" Value="_selectedModel" Label="Model"
+                   Variant="Variant.Outlined" Dense="true" Class="model-select"
+                   ValueChanged="OnModelChanged">
+            @foreach (var model in _availableModels)
+            {
+                <MudSelectItem Value="@model">@model</MudSelectItem>
+            }
+        </MudSelect>
+        <MudSpacer />
+        <ContextWindowDisplay EstimatedTokens="_estimatedTokenCount"
+                              ContextLength="_contextLength" />
+        <MudTooltip Text="@SystemPromptTooltip">
+            <MudIconButton Icon="@Icons.Material.Filled.Tune"
+                           Color="@(Settings.SystemPrompt is not null ? Color.Primary : Color.Default)"
+                           OnClick="OpenSettingsDialog"
+                           Class="ml-1" />
+        </MudTooltip>
+    </div>
+
+    <div class="chat-messages" @ref="_messagesContainer">
+        @if (_currentSession is not null)
+        {
+            @foreach (var message in _currentSession.Messages)
+            {
+                <ChatBubble Message="message" />
+            }
+        }
+        @if (_isStreaming && _currentSession?.Id == _streamingSessionId)
+        {
+            <ChatBubble Message="@_streamingMessage" IsStreaming="true" />
+        }
+        @if (!_isStreaming && (_currentSession is null || !_currentSession.Messages.Any()))
+        {
+            <div class="chat-empty-state">
+                <MudIcon Icon="@Icons.Material.Filled.Chat" Size="Size.Large" Style="opacity: 0.3;" />
+                <MudText Typo="Typo.h6" Style="opacity: 0.4;" Class="mt-2">Start a conversation</MudText>
+                <MudText Typo="Typo.body2" Style="opacity: 0.3;">Type a message below to begin</MudText>
+            </div>
+        }
+    </div>
+
+    <div class="chat-input-area">
+        <MudTextField @bind-Value="_userInput"
+                      Placeholder="Type your message... (Shift+Enter for new line)"
+                      Variant="Variant.Outlined"
+                      Lines="2"
+                      Sizing="InputSizing.Auto"
+                      MaxLines="5"
+                      Adornment="Adornment.End"
+                      AdornmentIcon="@Icons.Material.Filled.Send"
+                      AdornmentColor="@(_isStreaming ? Color.Default : Color.Primary)"
+                      OnAdornmentClick="SendMessage"
+                      OnKeyDown="HandleKeyDown"
+                      Immediate="true" />
+    </div>
+</div>
