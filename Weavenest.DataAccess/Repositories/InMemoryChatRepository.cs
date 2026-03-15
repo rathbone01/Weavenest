@@ -48,7 +48,7 @@ public class InMemoryChatRepository : IChatRepository
         return Task.FromResult(session);
     }
 
-    public Task<ChatMessage> AddMessageAsync(Guid sessionId, ChatRole role, string content, int? tokenCount = null, string? modelName = null)
+    public Task<ChatMessage> AddMessageAsync(Guid sessionId, ChatRole role, string content, int? tokenCount = null, string? modelName = null, string? thinking = null)
     {
         if (!_sessions.TryGetValue(sessionId, out var session))
             throw new KeyNotFoundException($"Session {sessionId} not found");
@@ -59,7 +59,8 @@ public class InMemoryChatRepository : IChatRepository
             Role = role,
             Content = content,
             TokenCount = tokenCount,
-            ModelName = modelName
+            ModelName = modelName,
+            Thinking = string.IsNullOrWhiteSpace(thinking) ? null : thinking
         };
 
         session.Messages.Add(message);

@@ -9,6 +9,7 @@ public class ChatMessage
     public DateTime Timestamp { get; set; } = DateTime.UtcNow;
     public int? TokenCount { get; set; }
     public string? ModelName { get; set; }
+    public string? Thinking { get; set; }
 }
 
 public enum ChatRole

@@ -30,6 +30,8 @@ public partial class Chat : IDisposable
         Role = ChatRole.Assistant,
         Content = ""
     };
+    private bool _inThinkBlock;
+    private string _tokenBuffer = "";
     private int _estimatedTokenCount;
     private int _contextLength = 2048;
     private CancellationTokenSource? _streamingCts;
@@ -145,6 +147,8 @@ public partial class Chat : IDisposable
 
         _isStreaming = true;
         _streamingSessionId = activeSession.Id;
+        _inThinkBlock = false;
+        _tokenBuffer = "";
         _streamingMessage = new ChatMessage
         {
             Role = ChatRole.Assistant,
@@ -163,9 +167,14 @@ public partial class Chat : IDisposable
             await foreach (var token in OllamaService.ChatStreamAsync(
                 history, userText, activeModel,
                 systemPrompt: Settings.SystemPrompt,
+                onThinkToken: t =>
+                {
+                    _streamingMessage.Thinking = (_streamingMessage.Thinking ?? "") + t;
+                    InvokeAsync(StateHasChanged);
+                },
                 cancellationToken: _streamingCts.Token))
             {
-                _streamingMessage.Content += token;
+                RouteStreamingToken(token);
                 StateHasChanged();
 
                 try
@@ -182,7 +191,8 @@ public partial class Chat : IDisposable
                 activeSession.Id,
                 ChatRole.Assistant,
                 _streamingMessage.Content,
-                modelName: activeModel);
+                modelName: activeModel,
+                thinking: _streamingMessage.Thinking);
         }
         catch (OperationCanceledException)
         {
@@ -192,7 +202,8 @@ public partial class Chat : IDisposable
                     activeSession.Id,
                     ChatRole.Assistant,
                     _streamingMessage.Content,
-                    modelName: activeModel);
+                    modelName: activeModel,
+                    thinking: _streamingMessage.Thinking);
             }
         }
         catch (Exception ex)
@@ -208,6 +219,56 @@ public partial class Chat : IDisposable
             UpdateTokenEstimate();
             StateHasChanged();
         }
+    }
+
+    // Routes each streamed token into either the think block or visible content,
+    // using a small lookahead buffer so partial tag boundaries are handled safely.
+    private void RouteStreamingToken(string token)
+    {
+        _tokenBuffer += token;
+
+        while (true)
+        {
+            if (!_inThinkBlock)
+            {
+                var startIdx = _tokenBuffer.IndexOf("<think>", StringComparison.OrdinalIgnoreCase);
+                if (startIdx == -1)
+                {
+                    var hold = PartialTagHold(_tokenBuffer, "<think>");
+                    _streamingMessage.Content += _tokenBuffer[..(_tokenBuffer.Length - hold)];
+                    _tokenBuffer = _tokenBuffer[(_tokenBuffer.Length - hold)..];
+                    break;
+                }
+                _streamingMessage.Content += _tokenBuffer[..startIdx];
+                _tokenBuffer = _tokenBuffer[(startIdx + "<think>".Length)..];
+                _inThinkBlock = true;
+            }
+            else
+            {
+                var endIdx = _tokenBuffer.IndexOf("</think>", StringComparison.OrdinalIgnoreCase);
+                if (endIdx == -1)
+                {
+                    var hold = PartialTagHold(_tokenBuffer, "</think>");
+                    _streamingMessage.Thinking = (_streamingMessage.Thinking ?? "") + _tokenBuffer[..(_tokenBuffer.Length - hold)];
+                    _tokenBuffer = _tokenBuffer[(_tokenBuffer.Length - hold)..];
+                    break;
+                }
+                _streamingMessage.Thinking = (_streamingMessage.Thinking ?? "") + _tokenBuffer[..endIdx];
+                _tokenBuffer = _tokenBuffer[(endIdx + "</think>".Length)..];
+                _inThinkBlock = false;
+            }
+        }
+    }
+
+    // Returns how many chars at the end of `buf` could be the start of `tag`.
+    private static int PartialTagHold(string buf, string tag)
+    {
+        for (var len = Math.Min(tag.Length - 1, buf.Length); len > 0; len--)
+        {
+            if (tag.StartsWith(buf[^len..], StringComparison.OrdinalIgnoreCase))
+                return len;
+        }
+        return 0;
     }
 
     private void UpdateTokenEstimate()

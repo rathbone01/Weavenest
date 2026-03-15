@@ -27,6 +27,7 @@ public class OllamaService : IOllamaService
         string userMessage,
         string modelName,
         string? systemPrompt = null,
+        Action<string>? onThinkToken = null,
         [EnumeratorCancellation] CancellationToken cancellationToken = default)
     {
         _logger.LogInformation("Starting chat stream — model: {Model}, history: {HistoryCount} messages, system prompt: {HasSystemPrompt}",
@@ -37,6 +38,8 @@ public class OllamaService : IOllamaService
             : new Chat(_client);
 
         chat.Model = modelName;
+        chat.Think = true;
+        chat.OnThink += (_, token) => onThinkToken?.Invoke(token ?? "");
 
         foreach (var msg in history)
         {

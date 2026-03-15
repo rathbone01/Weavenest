@@ -9,6 +9,7 @@ public interface IOllamaService
         string userMessage,
         string modelName,
         string? systemPrompt = null,
+        Action<string>? onThinkToken = null,
         CancellationToken cancellationToken = default);
 
     Task<IEnumerable<string>> GetModelsAsync(CancellationToken cancellationToken = default);

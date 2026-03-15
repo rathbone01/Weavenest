@@ -6,6 +6,34 @@
         <span class="role-label @RoleLabelClass">@RoleLabel</span>
         <span class="message-timestamp">@Message.Timestamp.ToLocalTime().ToString("h:mm tt")</span>
     </div>
+    @if (Message.Role == ChatRole.Assistant && !string.IsNullOrEmpty(Message.Thinking))
+    {
+        <div class="thinking-section">
+            <button class="thinking-toggle" @onclick="ToggleThinking">
+                <MudIcon Icon="@Icons.Material.Filled.Psychology" Size="Size.Small" Class="thinking-icon" />
+                <span class="thinking-label">
+                    @if (IsStreaming && string.IsNullOrEmpty(Message.Content))
+                    {
+                        <span>Thinking<span class="thinking-ellipsis">...</span></span>
+                    }
+                    else
+                    {
+                        <span>Thought process</span>
+                    }
+                </span>
+                <MudIcon Icon="@(_thinkingExpanded ? Icons.Material.Filled.ExpandLess : Icons.Material.Filled.ExpandMore)"
+                         Size="Size.Small" Class="thinking-chevron" />
+            </button>
+            @if (_thinkingExpanded)
+            {
+                <div class="thinking-full">@Message.Thinking</div>
+            }
+            else
+            {
+                <div class="thinking-preview">@ThinkingPreview</div>
+            }
+        </div>
+    }
     <MudPaper Class="@($"chat-bubble-paper {PaperClass}")" Elevation="1">
         @if (Message.Role == ChatRole.User)
         {
@@ -34,6 +62,13 @@
 
     [Parameter]
     public bool IsStreaming { get; set; }
+
+    private bool _thinkingExpanded;
+    private void ToggleThinking() => _thinkingExpanded = !_thinkingExpanded;
+
+    private string ThinkingPreview => Message.Thinking is { Length: > 120 }
+        ? Message.Thinking[..120] + "…"
+        : Message.Thinking ?? "";
 
     private static readonly MarkdownPipeline _pipeline = new MarkdownPipelineBuilder()
         .UseAdvancedExtensions()

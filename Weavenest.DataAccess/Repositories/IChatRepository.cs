@@ -9,6 +9,6 @@ public interface IChatRepository
     Task<ChatSession?> GetSessionByIdAsync(Guid sessionId);
     Task<bool> DeleteSessionAsync(Guid sessionId);
     Task<ChatSession> UpdateSessionTitleAsync(Guid sessionId, string title);
-    Task<ChatMessage> AddMessageAsync(Guid sessionId, ChatRole role, string content, int? tokenCount = null, string? modelName = null);
+    Task<ChatMessage> AddMessageAsync(Guid sessionId, ChatRole role, string content, int? tokenCount = null, string? modelName = null, string? thinking = null);
     Task<IReadOnlyList<ChatMessage>> GetMessagesAsync(Guid sessionId);
 }
