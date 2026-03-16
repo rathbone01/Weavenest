@@ -191,6 +191,14 @@ public partial class Chat : IDisposable
                 ? userText[..50] + "..."
                 : userText;
             _currentSession = await ChatRepo.CreateSessionAsync(userId.Value, title, _selectedModel);
+
+            // Set streaming state BEFORE NavigateTo so that OnParametersSetAsync
+            // hits the guard and skips reloading _currentSession from the DB
+            // (which would replace it with a new object, losing in-flight messages).
+            _isStreaming = true;
+            _streamingSessionId = _currentSession.Id;
+            _streamingSession = _currentSession;
+
             await StateNotifier.NotifySessionsChanged();
             Navigation.NavigateTo($"/chat/{_currentSession.Id}", replace: true);
         }
@@ -207,9 +215,12 @@ public partial class Chat : IDisposable
         var userMsg = await ChatRepo.AddMessageAsync(activeSession.Id, ChatRole.User, userText);
         activeSession.Messages.Add(userMsg);
 
-        _isStreaming = true;
-        _streamingSessionId = activeSession.Id;
-        _streamingSession = activeSession;
+        if (!_isStreaming)
+        {
+            _isStreaming = true;
+            _streamingSessionId = activeSession.Id;
+            _streamingSession = activeSession;
+        }
         _inThinkBlock = false;
         _tokenBuffer = "";
         _streamingMessage = new ChatMessage
