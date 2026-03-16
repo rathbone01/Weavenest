@@ -1,13 +1,27 @@
+using System.Text.RegularExpressions;
+
 namespace Weavenest.Services;
 
 public static class ThinkTagParser
 {
+    // Matches <tool_call>...</tool_call> blocks (qwen3 fallback when tools aren't available)
+    private static readonly Regex ToolCallBlockRegex =
+        new(@"<tool_call>[\s\S]*?</tool_call>", RegexOptions.IgnoreCase | RegexOptions.Compiled);
+
     public static string StripThinkTags(string content)
     {
         if (string.IsNullOrEmpty(content)) return content;
         content = content.Replace("<think>", "", StringComparison.OrdinalIgnoreCase);
         content = content.Replace("</think>", "", StringComparison.OrdinalIgnoreCase);
+        content = StripToolCallBlocks(content);
         return content.Trim();
+    }
+
+    /// <summary>Removes raw &lt;tool_call&gt; blocks qwen3 sometimes writes when tools are absent.</summary>
+    public static string StripToolCallBlocks(string content)
+    {
+        if (string.IsNullOrEmpty(content)) return content;
+        return ToolCallBlockRegex.Replace(content, "").Trim();
     }
 
     public static (string Content, string? Thinking) Parse(string rawContent)

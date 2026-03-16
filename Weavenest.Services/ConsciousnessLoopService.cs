@@ -121,34 +121,36 @@ public class ConsciousnessLoopService : BackgroundService
         // 1. Load emotional state (before snapshot)
         var emotionBefore = await emotionService.GetCurrentStateAsync();
 
-        // 2. Check for human message
-        string? humanMessage = null;
-        if (_mindState.TryDequeueHumanMessage(out var msg))
-        {
-            humanMessage = msg;
-            _logger.LogInformation("Processing human message: {Preview}",
-                humanMessage?.Length > 60 ? humanMessage[..60] + "..." : humanMessage);
+        // 2. Drain all queued human messages for this tick
+        var humanMessages = new List<string>();
+        while (_mindState.TryDequeueHumanMessage(out var msg) && msg is not null)
+            humanMessages.Add(msg);
 
-            // Mark as processed in DB
-            var dbMsg = await db.HumanMessages
+        if (humanMessages.Count > 0)
+        {
+            _logger.LogInformation("Processing {Count} human message(s) this tick", humanMessages.Count);
+
+            // Mark all unprocessed DB messages as processed
+            var dbMsgs = await db.HumanMessages
                 .Where(m => !m.Processed)
                 .OrderBy(m => m.Timestamp)
-                .FirstOrDefaultAsync(ct);
-            if (dbMsg is not null)
-            {
+                .Take(humanMessages.Count)
+                .ToListAsync(ct);
+            foreach (var dbMsg in dbMsgs)
                 dbMsg.Processed = true;
+            if (dbMsgs.Count > 0)
                 await db.SaveChangesAsync(ct);
-            }
 
-            // Add to short-term memory
-            _shortTermMemory.AddEntry($"The human said: \"{humanMessage}\"", "human");
+            // Add each to short-term memory
+            foreach (var m in humanMessages)
+                _shortTermMemory.AddEntry($"The human said: \"{m}\"", "human");
         }
 
         // 3. Extract context tags and assemble prompt
         var recentEntries = _shortTermMemory.GetRecentEntries();
-        var contextTags = promptAssembly.ExtractTopicTags(humanMessage, recentEntries);
+        var contextTags = promptAssembly.ExtractTopicTags(humanMessages.Count > 0 ? humanMessages[0] : null, recentEntries);
         var systemPrompt = await promptAssembly.AssembleSystemPromptAsync(contextTags);
-        var stimulus = promptAssembly.BuildStimulusMessage(humanMessage);
+        var stimulus = promptAssembly.BuildStimulusMessage(humanMessages);
 
         // 4. Call Ollama with tool loop
         var messages = new List<OllamaChatMessage>
@@ -188,13 +190,14 @@ public class ConsciousnessLoopService : BackgroundService
             if (!string.IsNullOrWhiteSpace(response.Message.Thinking))
             {
                 thinking = response.Message.Thinking;
-                // Strip orphaned </think> tags Ollama leaves in content when think:true is used
                 content = ThinkTagParser.StripThinkTags(response.Message.Content);
             }
             else
             {
                 (content, thinking) = ThinkTagParser.Parse(response.Message.Content);
             }
+            // Remove any raw <tool_call> blocks qwen3 writes when confused about tool availability
+            content = ThinkTagParser.StripToolCallBlocks(content);
 
             _logger.LogDebug("Tick response — model: {Model}, content: {ContentLen} chars, thinking: {ThinkingLen} chars, tool_calls: {ToolCount}",
                 response.Model, content?.Length ?? 0, thinking?.Length ?? 0, response.Message.ToolCalls?.Count ?? 0);
@@ -208,7 +211,7 @@ public class ConsciousnessLoopService : BackgroundService
             if (!string.IsNullOrWhiteSpace(thinking))
                 _mindState.PublishSubconsciousToken(thinking);
 
-            // Check for tool calls
+            // No tool calls — capture conscious content and stop
             if (response.Message.ToolCalls is null || response.Message.ToolCalls.Count == 0)
             {
                 consciousContent = content;
@@ -219,12 +222,22 @@ public class ConsciousnessLoopService : BackgroundService
             messages.Add(response.Message);
 
             // Execute tool calls
+            var requestedContinue = false;
             foreach (var toolCall in response.Message.ToolCalls)
             {
                 var toolName = toolCall.Function.Name;
-                var result = await toolDispatch.DispatchAsync(toolName, toolCall.Function.Arguments, ct);
 
-                toolCallLog.Add(new { Tool = toolName, Arguments = toolCall.Function.Arguments.ToString(), Result = result });
+                // Normalize arguments — Ollama sometimes returns them as a JSON-encoded string
+                var args = toolCall.Function.Arguments;
+                if (args.ValueKind == JsonValueKind.String)
+                {
+                    var raw = args.GetString() ?? "{}";
+                    args = JsonDocument.Parse(raw).RootElement;
+                }
+
+                var result = await toolDispatch.DispatchAsync(toolName, args, ct);
+
+                toolCallLog.Add(new { Tool = toolName, Arguments = args.ToString(), Result = result });
 
                 messages.Add(new OllamaChatMessage
                 {
@@ -232,26 +245,66 @@ public class ConsciousnessLoopService : BackgroundService
                     Content = result
                 });
 
-                // Track if speak was called
                 if (toolName == "speak")
                 {
-                    // Normalize in case Ollama returned arguments as a JSON-encoded string
-                    var args = toolCall.Function.Arguments;
-                    if (args.ValueKind == JsonValueKind.String)
-                    {
-                        var raw = args.GetString() ?? "{}";
-                        args = JsonDocument.Parse(raw).RootElement;
-                    }
                     var spokenMsg = args.TryGetProperty("message", out var m) ? m.GetString() : null;
                     if (spokenMsg is not null)
                         spokeContent = (spokeContent is null) ? spokenMsg : spokeContent + "\n" + spokenMsg;
                 }
+
+                if (toolName == "continue")
+                    requestedContinue = true;
             }
 
-            // If this was the last iteration, get final conscious content
-            if (iteration == MaxToolIterations - 1)
+            // Only keep looping if Jeremy explicitly asked for another iteration
+            if (!requestedContinue)
+                break;
+        }
+
+        // If tools were used the loop exits without a final prose response.
+        // Make one tool-free call so Jeremy can reflect and write a conscious thought.
+        if (consciousContent is null && toolCallLog.Count > 0)
+        {
+            _logger.LogDebug("Making final reflection call after tool use");
+            try
             {
-                consciousContent = content;
+                // Tell the model explicitly this is an inner monologue phase — no tools, no tool_call syntax.
+                // Without this hint, qwen3 falls back to writing raw <tool_call> text when tools are absent.
+                var reflMessages = new List<OllamaChatMessage>(messages)
+                {
+                    new()
+                    {
+                        Role = "user",
+                        Content = "[Inner monologue phase — no tools are available. Write only your conscious thoughts as plain text. Do not write tool_call syntax or JSON.]"
+                    }
+                };
+
+                var reflectionResponse = await ollamaService.ChatWithToolsAsync(
+                    systemPrompt, reflMessages, tools: null, modelName, ct);
+
+                string? reflThinking;
+                string reflContent;
+                if (!string.IsNullOrWhiteSpace(reflectionResponse.Message.Thinking))
+                {
+                    reflThinking = reflectionResponse.Message.Thinking;
+                    reflContent = ThinkTagParser.StripThinkTags(reflectionResponse.Message.Content);
+                }
+                else
+                {
+                    (reflContent, reflThinking) = ThinkTagParser.Parse(reflectionResponse.Message.Content);
+                }
+
+                if (!string.IsNullOrWhiteSpace(reflThinking))
+                {
+                    subconsciousContent = subconsciousContent is null ? reflThinking : subconsciousContent + "\n" + reflThinking;
+                    _mindState.PublishSubconsciousToken(reflThinking);
+                }
+
+                consciousContent = reflContent;
+            }
+            catch (Exception ex)
+            {
+                _logger.LogWarning(ex, "Final reflection call failed — conscious content will be empty this tick");
             }
         }
 

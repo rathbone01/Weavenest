@@ -39,8 +39,10 @@ public class ToolDispatchService
     {
         if (!_handlers.TryGetValue(toolName, out var handler))
         {
-            _logger.LogWarning("Unknown tool called: {ToolName}", toolName);
-            return $"[Error: Unknown tool '{toolName}'. Available tools: {string.Join(", ", _handlers.Keys)}]";
+            _logger.LogWarning("Unknown tool called: {ToolName}. Registered: {Known}", toolName, string.Join(", ", _handlers.Keys));
+            var unknownResult = $"[Error: Unknown tool '{toolName}'. Available: {string.Join(", ", _handlers.Keys)}]";
+            _mindState.RecordToolCall(new ToolCallRecord(toolName, arguments.ToString(), unknownResult, Succeeded: false, DateTime.UtcNow));
+            return unknownResult;
         }
 
         // Ollama sometimes returns arguments as a JSON-encoded string rather than a JSON object.

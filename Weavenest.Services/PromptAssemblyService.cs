@@ -107,22 +107,28 @@ public class PromptAssemblyService
                 """;
     }
 
-    public string BuildStimulusMessage(string? humanMessage)
+    public string BuildStimulusMessage(IReadOnlyList<string> humanMessages)
     {
         const string reminder = "\n\nReminder: Your text response is your inner monologue — the human cannot see it. To reply, you MUST call the speak tool.";
 
-        if (humanMessage is not null)
-            return $"The human said: \"{humanMessage}\"{reminder}";
+        if (humanMessages.Count == 0)
+            return "No new input. This is an idle tick. Reflect, process memories, or rest." + reminder;
 
-        return "No new input. This is an idle tick. Reflect, process memories, or rest." + reminder;
+        if (humanMessages.Count == 1)
+            return $"The human said: \"{humanMessages[0]}\"{reminder}";
+
+        var numbered = string.Join("\n", humanMessages.Select((m, i) => $"{i + 1}. \"{m}\""));
+        return $"The human sent {humanMessages.Count} messages since your last tick:\n{numbered}{reminder}";
     }
 
     public string[] ExtractTopicTags(string? humanMessage, List<ShortTermEntry> recentEntries)
     {
         var tags = new HashSet<string>(StringComparer.OrdinalIgnoreCase);
 
-        // Gather tags from recent short-term memory
-        foreach (var entry in recentEntries.TakeLast(5))
+        // Only pull tags from human messages in short-term memory, not Jeremy's own thoughts
+        // (Jeremy's thoughts inherit tags from the human messages that prompted them — using them
+        // here would cause topic drift across unrelated ticks)
+        foreach (var entry in recentEntries.Where(e => e.Source == "human").TakeLast(3))
         {
             foreach (var tag in entry.TopicTags)
                 tags.Add(tag);

@@ -92,15 +92,16 @@ public class LongTermMemoryService
             var score = _settings.RelevanceWeight * tagOverlap
                       + _settings.RecencyWeight * recencyScore;
 
-            return (Memory: m, Score: score);
+            return (Memory: m, Score: score, TagOverlap: tagOverlap);
         })
+        // Require at least some tag relevance — pure recency is not enough to include a memory
+        .Where(x => x.TagOverlap > 0)
         .OrderByDescending(x => x.Score)
         .Take(retrievalCount)
-        .Where(x => x.Score > 0)
         .ToList();
 
         // Update LastAccessedAt for retrieved memories
-        foreach (var (memory, _) in scored)
+        foreach (var (memory, _, _) in scored)
         {
             memory.LastAccessedAt = now;
         }
