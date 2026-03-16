@@ -1,10 +1,12 @@
 using Microsoft.AspNetCore.Components.Authorization;
 using Microsoft.EntityFrameworkCore;
+using Microsoft.Extensions.Options;
 using Weavenest.DataAccess.Data;
 using Weavenest.DataAccess.Repositories;
 using Weavenest.Services;
 using Weavenest.Services.Interfaces;
 using Weavenest.Services.Models.Options;
+using Weavenest.Services.Tools;
 
 namespace Weavenest.Configuration;
 
@@ -18,8 +20,34 @@ public static class ServiceCollectionExtensions
             configuration.GetSection(OllamaOptions.SectionName));
         services.Configure<JwtOptions>(
             configuration.GetSection(JwtOptions.SectionName));
+        services.Configure<SearXNGOptions>(
+            configuration.GetSection(SearXNGOptions.SectionName));
 
         services.AddSingleton<IOllamaService, OllamaService>();
+
+        services.AddHttpClient("OllamaApi", (sp, client) =>
+        {
+            var options = sp.GetRequiredService<IOptions<OllamaOptions>>().Value;
+            client.BaseAddress = new Uri(options.BaseUrl);
+            client.Timeout = TimeSpan.FromMinutes(5);
+        });
+
+        services.AddHttpClient("SearXNG", (sp, client) =>
+        {
+            var options = sp.GetRequiredService<IOptions<SearXNGOptions>>().Value;
+            client.BaseAddress = new Uri(options.BaseUrl);
+            client.Timeout = TimeSpan.FromSeconds(15);
+        });
+
+        services.AddHttpClient("WebFetch", client =>
+        {
+            client.Timeout = TimeSpan.FromSeconds(15);
+            client.DefaultRequestHeaders.UserAgent.ParseAdd("Weavenest/1.0");
+        });
+
+        services.AddSingleton<IWebSearchTool, SearXNGSearchTool>();
+        services.AddSingleton<IWebFetchTool, HtmlAgilityPackFetchTool>();
+        services.AddScoped<IAgenticChatService, AgenticChatService>();
 
         var connectionString = configuration.GetConnectionString("DefaultConnection");
         services.AddDbContextFactory<WeavenestDbContext>(options =>

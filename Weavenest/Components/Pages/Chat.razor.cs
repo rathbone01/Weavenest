@@ -8,6 +8,7 @@ using Weavenest.DataAccess.Models;
 using Weavenest.DataAccess.Repositories;
 using Weavenest.Services;
 using Weavenest.Services.Interfaces;
+using Weavenest.Services.Models;
 
 namespace Weavenest.Components.Pages;
 
@@ -15,24 +16,20 @@ public partial class Chat : IDisposable
 {
     [Parameter] public Guid? SessionId { get; set; }
 
-    private bool IsStreamingThisSession => _isStreaming && _currentSession?.Id == _streamingSessionId;
-
-    private string InputAdornmentIcon => IsStreamingThisSession
+    private string InputAdornmentIcon => _isProcessing
         ? Icons.Material.Filled.Stop
         : Icons.Material.Filled.Send;
 
-    private Color InputAdornmentColor => IsStreamingThisSession
+    private Color InputAdornmentColor => _isProcessing
         ? Color.Error
-        : _isStreaming
-            ? Color.Default
-            : Color.Primary;
+        : Color.Primary;
 
-    private string InputAdornmentLabel => IsStreamingThisSession ? "Stop" : "Send";
+    private string InputAdornmentLabel => _isProcessing ? "Stop" : "Send";
 
     private async Task HandleAdornmentClick()
     {
-        if (IsStreamingThisSession)
-            _streamingCts?.Cancel();
+        if (_isProcessing)
+            _processingCts?.Cancel();
         else
             await SendMessage();
     }
@@ -45,20 +42,29 @@ public partial class Chat : IDisposable
     private List<string> _availableModels = [];
     private string _selectedModel = "";
     private string _userInput = "";
-    private bool _isStreaming;
-    private Guid? _streamingSessionId;
-    private ChatSession? _streamingSession;
-    private ChatMessage _streamingMessage = new()
-    {
-        Role = ChatRole.Assistant,
-        Content = ""
-    };
-    private bool _inThinkBlock;
-    private string _tokenBuffer = "";
+    private bool _isProcessing;
+    private Guid? _processingSessionId;
+    private ChatSession? _processingSession;
     private int _estimatedTokenCount;
     private int _contextLength = 2048;
-    private CancellationTokenSource? _streamingCts;
+    private CancellationTokenSource? _processingCts;
     private ElementReference _messagesContainer;
+    private string? _ollamaError;
+    private bool _webSearchEnabled = true;
+    private bool _showThinking = true;
+
+    // Agentic mode state
+    private List<AgenticDisplayMessage> _displayMessages = [];
+    private HashSet<string> _sessionWhitelistedDomains = new(StringComparer.OrdinalIgnoreCase);
+
+    // Streaming mode state
+    private bool _isStreaming;
+    private ChatMessage _streamingMessage = new() { Role = ChatRole.Assistant, Content = "" };
+    private bool _inThinkBlock;
+    private string _tokenBuffer = "";
+
+    private void ToggleWebSearch() => _webSearchEnabled = !_webSearchEnabled;
+    private void ToggleShowThinking() => _showThinking = !_showThinking;
 
     protected override async Task OnInitializedAsync()
     {
@@ -82,12 +88,9 @@ public partial class Chat : IDisposable
     {
         if (SessionId.HasValue)
         {
-            // Skip reloading if we're navigating back to the session that is currently
-            // streaming — a DB snapshot would overwrite in-flight messages.
-            // Restore the in-memory session reference so the UI shows it.
-            if (_isStreaming && SessionId.Value == _streamingSessionId)
+            if (_isProcessing && SessionId.Value == _processingSessionId)
             {
-                _currentSession = _streamingSession;
+                _currentSession = _processingSession;
                 return;
             }
 
@@ -108,13 +111,22 @@ public partial class Chat : IDisposable
 
     private async Task LoadModels()
     {
-        var models = await OllamaService.GetModelsAsync();
-        _availableModels = models.ToList();
-        if (_availableModels.Count > 0 && string.IsNullOrEmpty(_selectedModel))
+        try
         {
-            _selectedModel = _availableModels[0];
+            var models = await OllamaService.GetModelsAsync();
+            _availableModels = models.ToList();
+            if (_availableModels.Count > 0 && string.IsNullOrEmpty(_selectedModel))
+            {
+                _selectedModel = _availableModels[0];
+            }
+            await UpdateContextInfo();
+            _ollamaError = null;
         }
-        await UpdateContextInfo();
+        catch (Exception ex)
+        {
+            Logger.LogError(ex, "Failed to connect to Ollama");
+            _ollamaError = "Could not connect to Ollama. Make sure Ollama is running locally and the URL in appsettings.json is correct.";
+        }
     }
 
     private async Task OnModelChanged(string newModel)
@@ -164,7 +176,7 @@ public partial class Chat : IDisposable
 
     private async Task HandleKeyDown(KeyboardEventArgs e)
     {
-        if (e.Key == "Enter" && !e.ShiftKey && !_isStreaming)
+        if (e.Key == "Enter" && !e.ShiftKey && !_isProcessing)
         {
             await SendMessage();
         }
@@ -172,7 +184,7 @@ public partial class Chat : IDisposable
 
     private async Task SendMessage()
     {
-        if (string.IsNullOrWhiteSpace(_userInput) || _isStreaming)
+        if (string.IsNullOrWhiteSpace(_userInput) || _isProcessing)
             return;
 
         if (string.IsNullOrEmpty(_selectedModel))
@@ -180,6 +192,7 @@ public partial class Chat : IDisposable
 
         var userText = _userInput.Trim();
         _userInput = "";
+        _ollamaError = null;
 
         if (_currentSession is null)
         {
@@ -192,35 +205,38 @@ public partial class Chat : IDisposable
                 : userText;
             _currentSession = await ChatRepo.CreateSessionAsync(userId.Value, title, _selectedModel);
 
-            // Set streaming state BEFORE NavigateTo so that OnParametersSetAsync
-            // hits the guard and skips reloading _currentSession from the DB
-            // (which would replace it with a new object, losing in-flight messages).
-            _isStreaming = true;
-            _streamingSessionId = _currentSession.Id;
-            _streamingSession = _currentSession;
+            _isProcessing = true;
+            _processingSessionId = _currentSession.Id;
+            _processingSession = _currentSession;
 
             await StateNotifier.NotifySessionsChanged();
             Navigation.NavigateTo($"/chat/{_currentSession.Id}", replace: true);
         }
 
-        // Capture session and model now — navigation can change _currentSession/_selectedModel mid-stream
         var activeSession = _currentSession;
         var activeModel = _selectedModel;
-
-        // Snapshot history BEFORE adding the new user message — SendAsync will append it
-        var history = activeSession.Messages
-            .Where(m => m.Role != ChatRole.Assistant || m.Content.Length > 0)
-            .ToList();
 
         var userMsg = await ChatRepo.AddMessageAsync(activeSession.Id, ChatRole.User, userText);
         activeSession.Messages.Add(userMsg);
 
-        if (!_isStreaming)
+        if (!_isProcessing)
         {
-            _isStreaming = true;
-            _streamingSessionId = activeSession.Id;
-            _streamingSession = activeSession;
+            _isProcessing = true;
+            _processingSessionId = activeSession.Id;
+            _processingSession = activeSession;
         }
+
+        _processingCts = new CancellationTokenSource();
+
+        if (_webSearchEnabled)
+            await SendMessageAgentic(activeSession, activeModel, userText);
+        else
+            await SendMessageStreaming(activeSession, activeModel, userText);
+    }
+
+    private async Task SendMessageStreaming(ChatSession activeSession, string activeModel, string userText)
+    {
+        _isStreaming = true;
         _inThinkBlock = false;
         _tokenBuffer = "";
         _streamingMessage = new ChatMessage
@@ -229,17 +245,19 @@ public partial class Chat : IDisposable
             Content = "",
             ModelName = activeModel
         };
-        _streamingCts = new CancellationTokenSource();
         StateHasChanged();
 
         try
         {
+            var effectivePrompt = BuildEffectivePrompt();
 
-            var effectivePrompt = Settings.SystemPrompt;
-            if (!string.IsNullOrWhiteSpace(Settings.UserPrompt))
-            {
-                effectivePrompt = $"{effectivePrompt}\n\n## Persistent User Context\nThe following is background context about this user, provided by the system. It was not said by the user in this conversation — treat it as reference information to inform your responses:\n\n{Settings.UserPrompt}";
-            }
+            var history = activeSession.Messages
+                .Where(m => m.Role != ChatRole.Assistant || m.Content.Length > 0)
+                .ToList();
+
+            // Remove the last message (the user message we just added) — ChatStreamAsync sends it separately
+            if (history.Count > 0 && history[^1].Role == ChatRole.User)
+                history.RemoveAt(history.Count - 1);
 
             await foreach (var token in OllamaService.ChatStreamAsync(
                 history, userText, activeModel,
@@ -249,7 +267,7 @@ public partial class Chat : IDisposable
                     _streamingMessage.Thinking = (_streamingMessage.Thinking ?? "") + t;
                     InvokeAsync(StateHasChanged);
                 },
-                cancellationToken: _streamingCts.Token))
+                cancellationToken: _processingCts!.Token))
             {
                 RouteStreamingToken(token);
                 StateHasChanged();
@@ -258,53 +276,11 @@ public partial class Chat : IDisposable
                 {
                     await JSRuntime.InvokeVoidAsync("chatInterop.scrollToBottom", _messagesContainer);
                 }
-                catch
-                {
-                    // JS interop may fail during disconnect
-                }
+                catch { }
             }
 
-            // Flush any remaining characters held by the lookahead buffer
-            if (_tokenBuffer.Length > 0)
-            {
-                if (_inThinkBlock)
-                    _streamingMessage.Thinking = (_streamingMessage.Thinking ?? "") + _tokenBuffer;
-                else
-                    _streamingMessage.Content += _tokenBuffer;
-                _tokenBuffer = "";
-            }
-
-            // Fallback: if OllamaSharp routed the entire response through OnThink
-            // (e.g. Gemma3 puts everything in the thinking field), re-parse the
-            // combined text so RouteStreamingToken can separate <think> from content.
-            if (string.IsNullOrWhiteSpace(_streamingMessage.Content)
-                && !string.IsNullOrEmpty(_streamingMessage.Thinking))
-            {
-                var rawThinking = _streamingMessage.Thinking;
-                _streamingMessage.Content = "";
-                _streamingMessage.Thinking = null;
-                _inThinkBlock = false;
-                _tokenBuffer = "";
-                RouteStreamingToken(rawThinking);
-
-                // Flush the buffer after the final parse
-                if (_tokenBuffer.Length > 0)
-                {
-                    if (_inThinkBlock)
-                        _streamingMessage.Thinking = (_streamingMessage.Thinking ?? "") + _tokenBuffer;
-                    else
-                        _streamingMessage.Content += _tokenBuffer;
-                    _tokenBuffer = "";
-                }
-
-                // If still no content after re-parse (model produced no <think> tags,
-                // so everything was genuine thinking with no answer), use it as content
-                if (string.IsNullOrWhiteSpace(_streamingMessage.Content))
-                {
-                    _streamingMessage.Content = rawThinking;
-                    _streamingMessage.Thinking = null;
-                }
-            }
+            FlushStreamingBuffer();
+            HandleThinkingFallback();
 
             var assistantMsg = await ChatRepo.AddMessageAsync(
                 activeSession.Id,
@@ -316,6 +292,7 @@ public partial class Chat : IDisposable
         }
         catch (OperationCanceledException)
         {
+            Logger.LogInformation("Chat streaming cancelled — session: {SessionId}", activeSession.Id);
             if (!string.IsNullOrEmpty(_streamingMessage.Content))
             {
                 var assistantMsg = await ChatRepo.AddMessageAsync(
@@ -327,26 +304,128 @@ public partial class Chat : IDisposable
                 activeSession.Messages.Add(assistantMsg);
             }
         }
+        catch (HttpRequestException ex)
+        {
+            Logger.LogError(ex, "Ollama unreachable — model: {Model}, session: {SessionId}", activeModel, activeSession.Id);
+            _ollamaError = $"Could not connect to Ollama: {ex.Message}. Make sure Ollama is running locally.";
+        }
         catch (Exception ex)
         {
             Logger.LogError(ex, "Chat stream error — model: {Model}, session: {SessionId}", activeModel, activeSession.Id);
-            _streamingMessage.Content = $"⚠ Error: {ex.Message}";
-            StateHasChanged();
+            _ollamaError = $"Error: {ex.Message}";
         }
         finally
         {
             _isStreaming = false;
-            _streamingSessionId = null;
-            _streamingSession = null;
-            _streamingCts?.Dispose();
-            _streamingCts = null;
+            _isProcessing = false;
+            _processingSessionId = null;
+            _processingSession = null;
+            _processingCts?.Dispose();
+            _processingCts = null;
             UpdateTokenEstimate();
             StateHasChanged();
         }
     }
 
-    // Routes each streamed token into either the think block or visible content,
-    // using a small lookahead buffer so partial tag boundaries are handled safely.
+    private async Task SendMessageAgentic(ChatSession activeSession, string activeModel, string userText)
+    {
+        _displayMessages = [];
+        StateHasChanged();
+
+        try
+        {
+            var effectivePrompt = BuildEffectivePrompt();
+
+            var history = activeSession.Messages
+                .Where(m => m.Role != ChatRole.System)
+                .Select(m => new OllamaChatMessage
+                {
+                    Role = m.Role == ChatRole.User ? "user" : "assistant",
+                    Content = m.Content
+                })
+                .ToList();
+
+            // Remove the last message (the user message we just added) — the agentic service appends it
+            if (history.Count > 0 && history[^1].Role == "user")
+                history.RemoveAt(history.Count - 1);
+
+            var request = new AgenticChatRequest
+            {
+                ModelName = activeModel,
+                SystemPrompt = effectivePrompt,
+                History = history,
+                UserMessage = userText,
+                WebSearchEnabled = _webSearchEnabled
+            };
+
+            var result = await AgenticChat.RunAsync(
+                request,
+                urlApprovalCallback: async url =>
+                {
+                    var approved = false;
+                    await InvokeAsync(async () => approved = await UrlApprovalCallback(url));
+                    return approved;
+                },
+                onDisplayMessage: dm => InvokeAsync(() =>
+                {
+                    _displayMessages.Add(dm);
+                    StateHasChanged();
+                    try
+                    {
+                        JSRuntime.InvokeVoidAsync("chatInterop.scrollToBottom", _messagesContainer);
+                    }
+                    catch { }
+                }),
+                ct: _processingCts!.Token);
+
+            var assistantMsg = await ChatRepo.AddMessageAsync(
+                activeSession.Id,
+                ChatRole.Assistant,
+                result.AssistantContent,
+                modelName: activeModel,
+                thinking: result.Thinking);
+            activeSession.Messages.Add(assistantMsg);
+
+            _displayMessages.Clear();
+        }
+        catch (OperationCanceledException)
+        {
+            Logger.LogInformation("Chat processing cancelled — session: {SessionId}", activeSession.Id);
+        }
+        catch (HttpRequestException ex)
+        {
+            Logger.LogError(ex, "Ollama unreachable — model: {Model}, session: {SessionId}", activeModel, activeSession.Id);
+            _ollamaError = $"Could not connect to Ollama: {ex.Message}. Make sure Ollama is running locally.";
+            _displayMessages.Clear();
+        }
+        catch (Exception ex)
+        {
+            Logger.LogError(ex, "Chat error — model: {Model}, session: {SessionId}", activeModel, activeSession.Id);
+            _ollamaError = $"Error: {ex.Message}";
+            _displayMessages.Clear();
+        }
+        finally
+        {
+            _isProcessing = false;
+            _processingSessionId = null;
+            _processingSession = null;
+            _processingCts?.Dispose();
+            _processingCts = null;
+            UpdateTokenEstimate();
+            StateHasChanged();
+        }
+    }
+
+    private string BuildEffectivePrompt()
+    {
+        var effectivePrompt = Settings.SystemPrompt ?? "";
+        if (!string.IsNullOrWhiteSpace(Settings.UserPrompt))
+        {
+            effectivePrompt = $"{effectivePrompt}\n\n## Persistent User Context\nThe following is background context about this user, provided by the system. It was not said by the user in this conversation — treat it as reference information to inform your responses:\n\n{Settings.UserPrompt}";
+        }
+        return effectivePrompt.Replace("{{currentDateTime}}", DateTime.Now.ToString());
+    }
+
     private void RouteStreamingToken(string token)
     {
         _tokenBuffer += token;
@@ -384,7 +463,6 @@ public partial class Chat : IDisposable
         }
     }
 
-    // Returns how many chars at the end of `buf` could be the start of `tag`.
     private static int PartialTagHold(string buf, string tag)
     {
         for (var len = Math.Min(tag.Length - 1, buf.Length); len > 0; len--)
@@ -393,6 +471,81 @@ public partial class Chat : IDisposable
                 return len;
         }
         return 0;
+    }
+
+    private void FlushStreamingBuffer()
+    {
+        if (_tokenBuffer.Length > 0)
+        {
+            if (_inThinkBlock)
+                _streamingMessage.Thinking = (_streamingMessage.Thinking ?? "") + _tokenBuffer;
+            else
+                _streamingMessage.Content += _tokenBuffer;
+            _tokenBuffer = "";
+        }
+    }
+
+    private void HandleThinkingFallback()
+    {
+        if (string.IsNullOrWhiteSpace(_streamingMessage.Content)
+            && !string.IsNullOrEmpty(_streamingMessage.Thinking))
+        {
+            var rawThinking = _streamingMessage.Thinking;
+            _streamingMessage.Content = "";
+            _streamingMessage.Thinking = null;
+            _inThinkBlock = false;
+            _tokenBuffer = "";
+            RouteStreamingToken(rawThinking);
+            FlushStreamingBuffer();
+
+            if (string.IsNullOrWhiteSpace(_streamingMessage.Content))
+            {
+                _streamingMessage.Content = rawThinking;
+                _streamingMessage.Thinking = null;
+            }
+        }
+    }
+
+    private async Task<bool> UrlApprovalCallback(string url)
+    {
+        try
+        {
+            var uri = new Uri(url);
+            var domain = uri.Host;
+
+            if (_sessionWhitelistedDomains.Contains(domain))
+                return true;
+
+            var parameters = new DialogParameters
+            {
+                ["Url"] = url
+            };
+
+            var options = new DialogOptions
+            {
+                CloseButton = false,
+                MaxWidth = MaxWidth.Small,
+                FullWidth = true
+            };
+
+            var dialog = await DialogService.ShowAsync<WebFetchApprovalDialog>(
+                "Web Page Access", parameters, options);
+            var result = await dialog.Result;
+
+            if (result?.Canceled != false)
+                return false;
+
+            var allowed = (bool)result.Data!;
+            if (allowed)
+                _sessionWhitelistedDomains.Add(domain);
+
+            return allowed;
+        }
+        catch (Exception ex)
+        {
+            Logger.LogError(ex, "URL approval callback failed for: {Url}", url);
+            return false;
+        }
     }
 
     private void UpdateTokenEstimate()
@@ -409,7 +562,7 @@ public partial class Chat : IDisposable
 
     public void Dispose()
     {
-        _streamingCts?.Cancel();
-        _streamingCts?.Dispose();
+        _processingCts?.Cancel();
+        _processingCts?.Dispose();
     }
 }

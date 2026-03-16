@@ -22,7 +22,7 @@ public class OllamaService : IOllamaService
         _options = config.Value;
         _logger = logger;
         var uri = new Uri(_options.BaseUrl);
-        _client = new OllamaApiClient(uri, _options.DefaultModel ?? "");
+        _client = new OllamaApiClient(uri, _options.Model ?? "");
     }
 
     public async IAsyncEnumerable<string> ChatStreamAsync(
@@ -118,7 +118,6 @@ public class OllamaService : IOllamaService
 
     public int EstimateTokenCount(string text)
     {
-        // ~4 characters per token is a standard heuristic for English text
         return (int)Math.Ceiling(text.Length / 4.0);
     }
 

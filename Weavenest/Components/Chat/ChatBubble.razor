@@ -7,7 +7,7 @@
         <span class="role-label @RoleLabelClass">@RoleLabel</span>
         <span class="message-timestamp">@Message.Timestamp.ToLocalTime().ToString("h:mm tt")</span>
     </div>
-    @if (Message.Role == ChatRole.Assistant && !string.IsNullOrEmpty(Message.Thinking))
+    @if (ShowThinking && Message.Role == ChatRole.Assistant && !string.IsNullOrEmpty(Message.Thinking))
     {
         <div class="thinking-section">
             <button class="thinking-toggle" @onclick="ToggleThinking">
@@ -38,11 +38,11 @@
     <MudPaper Class="@($"chat-bubble-paper {PaperClass}")" Elevation="1">
         @if (Message.Role == ChatRole.User)
         {
-            <div class="message-content-plain">&nbsp; @Message.Content</div>
+            <div class="message-content-plain">@Message.Content</div>
         }
         else
         {
-            <div class="markdown-body">
+            <div class="markdown-body message-content-model">
                 @((MarkupString)RenderMarkdown(Message.Content))
                 @if (IsStreaming && string.IsNullOrEmpty(Message.Content))
                 {
@@ -64,6 +64,9 @@
     [Parameter]
     public bool IsStreaming { get; set; }
 
+    [Parameter]
+    public bool ShowThinking { get; set; } = true;
+
     private bool _thinkingExpanded;
     private ElementReference _thinkingFullEl;
 
@@ -77,12 +80,12 @@
             {
                 await JSRuntime.InvokeVoidAsync("chatInterop.scrollToBottom", _thinkingFullEl);
             }
-            catch { /* ignore JS interop errors during disconnect */ }
+            catch { }
         }
     }
 
     private string ThinkingPreview => Message.Thinking is { Length: > 120 }
-        ? Message.Thinking[..120] + "…"
+        ? Message.Thinking[..120] + "..."
         : Message.Thinking ?? "";
 
     private static readonly MarkdownPipeline _pipeline = new MarkdownPipelineBuilder()

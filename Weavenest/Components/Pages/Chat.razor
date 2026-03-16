@@ -3,7 +3,9 @@
 @using Weavenest.DataAccess.Repositories
 @using Weavenest.Services
 @using Weavenest.Services.Interfaces
+@using Weavenest.Services.Models
 @inject IOllamaService OllamaService
+@inject IAgenticChatService AgenticChat
 @inject IChatRepository ChatRepo
 @inject ChatStateNotifier StateNotifier
 @inject CircuitSettings Settings
@@ -36,21 +38,65 @@
                            OnClick="OpenUserMemoryDialog"
                            Class="ml-1" />
         </MudTooltip>
+        <MudMenu Icon="@Icons.Material.Filled.Settings" AnchorOrigin="Origin.BottomRight"
+                 TransformOrigin="Origin.TopRight" Dense="true">
+            <MudMenuItem OnClick="ToggleWebSearch"
+                         Icon="@(_webSearchEnabled ? Icons.Material.Filled.CheckBox : Icons.Material.Filled.CheckBoxOutlineBlank)"
+                         IconColor="@(_webSearchEnabled ? Color.Primary : Color.Default)">
+                Web Search
+            </MudMenuItem>
+            <MudMenuItem OnClick="ToggleShowThinking"
+                         Icon="@(_showThinking ? Icons.Material.Filled.CheckBox : Icons.Material.Filled.CheckBoxOutlineBlank)"
+                         IconColor="@(_showThinking ? Color.Primary : Color.Default)">
+                Show Thinking
+            </MudMenuItem>
+        </MudMenu>
     </div>
+
+    @if (_ollamaError is not null)
+    {
+        <MudAlert Severity="Severity.Error" Class="mb-2">@_ollamaError</MudAlert>
+    }
 
     <div class="chat-messages" @ref="_messagesContainer">
         @if (_currentSession is not null)
         {
             @foreach (var message in _currentSession.Messages)
             {
-                <ChatBubble Message="message"/>
+                <ChatBubble Message="message" ShowThinking="_showThinking" />
             }
         }
-        @if (_isStreaming && _currentSession?.Id == _streamingSessionId)
+        @if (_isStreaming && _currentSession?.Id == _processingSessionId)
         {
-            <ChatBubble Message="@_streamingMessage" IsStreaming="true" />
+            <ChatBubble Message="@_streamingMessage" IsStreaming="true" ShowThinking="_showThinking" />
         }
-        @if (!_isStreaming && (_currentSession is null || !_currentSession.Messages.Any()))
+        @foreach (var dm in _displayMessages)
+        {
+            @if (dm.Role is "tool_call" or "tool_result")
+            {
+                <ToolMessageBubble Message="dm" />
+            }
+            else if (dm.Role == "assistant")
+            {
+                <ChatBubble Message="@(new ChatMessage
+                {
+                    Role = ChatRole.Assistant,
+                    Content = dm.Content,
+                    ModelName = dm.ModelName,
+                    Timestamp = dm.Timestamp
+                })" ShowThinking="_showThinking" />
+            }
+        }
+        @if (_isProcessing && !_isStreaming)
+        {
+            <div class="processing-indicator">
+                <MudProgressCircular Size="Size.Small" Indeterminate="true" Color="Color.Primary" />
+                <MudText Typo="Typo.caption" Class="ml-2" Style="opacity: 0.5;">
+                    Thinking...
+                </MudText>
+            </div>
+        }
+        @if (!_isProcessing && !_isStreaming && _displayMessages.Count == 0 && (_currentSession is null || !_currentSession.Messages.Any()))
         {
             <div class="chat-empty-state">
                 <MudIcon Icon="@Icons.Material.Filled.Chat" Size="Size.Large" Style="opacity: 0.3;" />
