@@ -1,8 +1,6 @@
-using Microsoft.AspNetCore.Components.Authorization;
 using Microsoft.EntityFrameworkCore;
 using Microsoft.Extensions.Options;
 using Weavenest.DataAccess.Data;
-using Weavenest.DataAccess.Repositories;
 using Weavenest.Services;
 using Weavenest.Services.Interfaces;
 using Weavenest.Services.Models.Options;
@@ -16,15 +14,15 @@ public static class ServiceCollectionExtensions
         this IServiceCollection services,
         IConfiguration configuration)
     {
+        // Configuration
         services.Configure<OllamaOptions>(
             configuration.GetSection(OllamaOptions.SectionName));
-        services.Configure<JwtOptions>(
-            configuration.GetSection(JwtOptions.SectionName));
         services.Configure<SearXNGOptions>(
             configuration.GetSection(SearXNGOptions.SectionName));
+        services.Configure<MindSettings>(
+            configuration.GetSection(MindSettings.SectionName));
 
-        services.AddSingleton<IOllamaService, OllamaService>();
-
+        // HTTP Clients
         services.AddHttpClient("OllamaApi", (sp, client) =>
         {
             var options = sp.GetRequiredService<IOptions<OllamaOptions>>().Value;
@@ -45,31 +43,42 @@ public static class ServiceCollectionExtensions
             client.DefaultRequestHeaders.UserAgent.ParseAdd("Weavenest/1.0");
         });
 
+        // Singleton services
+        services.AddSingleton<IOllamaService, OllamaService>();
         services.AddSingleton<IWebSearchTool, SearXNGSearchTool>();
         services.AddSingleton<IWebFetchTool, HtmlAgilityPackFetchTool>();
-        services.AddScoped<IAgenticChatService, AgenticChatService>();
+        services.AddSingleton<MindStateService>();
+        services.AddSingleton<ShortTermMemoryService>();
 
+        // Database — factory only; scoped DbContext is resolved per-scope via the factory
         var connectionString = configuration.GetConnectionString("DefaultConnection");
         services.AddDbContextFactory<WeavenestDbContext>(options =>
-    options.UseSqlServer(
-        connectionString,
-        b => b.MigrationsAssembly("Weavenest.DataAccess")
-    ));
-
-        services.AddScoped<IChatRepository, EfChatRepository>();
-        services.AddScoped<IFolderRepository, EfFolderRepository>();
-        services.AddScoped<IUserRepository, EfUserRepository>();
-
-        services.AddScoped<ILocalStorageService, LocalStorageService>();
-        services.AddScoped<IUserIdentityService, UserIdentityService>();
-        services.AddScoped<IAuthService, AuthService>();
-        services.AddScoped<TokenService>();
-        services.AddScoped<AuthenticationStateProvider, CustomAuthenticationStateProvider>();
+            options.UseSqlServer(
+                connectionString,
+                b => b.MigrationsAssembly("Weavenest.DataAccess")
+            ));
         services.AddScoped(sp =>
-            (CustomAuthenticationStateProvider)sp.GetRequiredService<AuthenticationStateProvider>());
+            sp.GetRequiredService<IDbContextFactory<WeavenestDbContext>>().CreateDbContext());
 
-        services.AddScoped<ChatStateNotifier>();
-        services.AddScoped<CircuitSettings>();
+        // Scoped services
+        services.AddScoped<EmotionService>();
+        services.AddScoped<LongTermMemoryService>();
+        services.AddTransient<PromptAssemblyService>();
+
+        // Tool handlers (auto-collected via IEnumerable<IToolHandler>)
+        services.AddScoped<IToolHandler, SpeakToolHandler>();
+        services.AddScoped<IToolHandler, StoreMemoryToolHandler>();
+        services.AddScoped<IToolHandler, UpdateEmotionToolHandler>();
+        services.AddScoped<IToolHandler, RecallToolHandler>();
+        services.AddScoped<IToolHandler, ReflectToolHandler>();
+        services.AddScoped<IToolHandler, LinkMemoriesToolHandler>();
+        services.AddScoped<IToolHandler, SupersedeMemoryToolHandler>();
+        services.AddScoped<IToolHandler, WebSearchToolHandler>();
+        services.AddScoped<IToolHandler, WebFetchToolHandler>();
+        services.AddScoped<ToolDispatchService>();
+
+        // Background consciousness loop
+        services.AddHostedService<ConsciousnessLoopService>();
 
         return services;
     }

@@ -15,6 +15,7 @@ public class OllamaChatRequest
     public bool Stream { get; set; } = false;
 
     [JsonPropertyName("tools")]
+    [JsonIgnore(Condition = JsonIgnoreCondition.WhenWritingNull)]
     public List<OllamaTool>? Tools { get; set; }
 }
 
@@ -25,6 +26,11 @@ public class OllamaChatMessage
 
     [JsonPropertyName("content")]
     public string Content { get; set; } = "";
+
+    // Ollama extracts qwen3's <think> blocks into this field on responses
+    [JsonPropertyName("thinking")]
+    [JsonIgnore(Condition = JsonIgnoreCondition.WhenWritingNull)]
+    public string? Thinking { get; set; }
 
     [JsonPropertyName("tool_calls")]
     [JsonIgnore(Condition = JsonIgnoreCondition.WhenWritingNull)]

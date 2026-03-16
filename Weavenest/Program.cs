@@ -20,34 +20,29 @@ namespace Weavenest
                 .Enrich.FromLogContext()
                 .WriteTo.Console()
                 .WriteTo.File(
-                    path: "logs/weavenest-.log",
+                    path: "logs/jeremy-.log",
                     rollingInterval: RollingInterval.Day,
                     retainedFileCountLimit: 30,
                     outputTemplate: "{Timestamp:yyyy-MM-dd HH:mm:ss.fff zzz} [{Level:u3}] {SourceContext}: {Message:lj}{NewLine}{Exception}"));
 
-            // Add services to the container.
             builder.Services.AddRazorComponents()
                 .AddInteractiveServerComponents();
 
             builder.Services.AddMudServices();
-            builder.Services.AddAuthorization();
-            builder.Services.AddCascadingAuthenticationState();
             builder.Services.AddWeavenestServices(builder.Configuration);
 
             var app = builder.Build();
 
             if (app.Environment.IsDevelopment())
             {
-                using var scope = app.Services.CreateScope();
-                var db = scope.ServiceProvider.GetService<WeavenestDbContext>();
-                db?.Database.Migrate();
+                var factory = app.Services.GetRequiredService<IDbContextFactory<WeavenestDbContext>>();
+                using var db = factory.CreateDbContext();
+                db.Database.Migrate();
             }
 
-            // Configure the HTTP request pipeline.
             if (!app.Environment.IsDevelopment())
             {
                 app.UseExceptionHandler("/Error");
-                // The default HSTS value is 30 days. You may want to change this for production scenarios, see https://aka.ms/aspnetcore-hsts.
                 app.UseHsts();
             }
 

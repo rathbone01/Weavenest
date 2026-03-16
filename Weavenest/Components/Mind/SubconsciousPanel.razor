@@ -1,0 +1,120 @@
+@using Weavenest.Services
+@inject MindStateService MindState
+@implements IDisposable
+
+<div class="subconscious-panel">
+    <div class="subconscious-header">
+        <MudText Typo="Typo.subtitle1" Color="Color.Secondary">
+            Subconscious
+        </MudText>
+        <MudIconButton Icon="@(_isExpanded ? Icons.Material.Filled.VisibilityOff : Icons.Material.Filled.Visibility)"
+                       Color="Color.Secondary"
+                       Size="Size.Small"
+                       OnClick="ToggleVisibility" />
+    </div>
+
+    @if (_isExpanded)
+    {
+        <div class="subconscious-entries">
+            @if (_entries.Count == 0 && string.IsNullOrEmpty(_currentStreamContent))
+            {
+                <div class="subconscious-empty">
+                    <MudText Typo="Typo.caption" Color="Color.Secondary">
+                        No subconscious activity yet...
+                    </MudText>
+                </div>
+            }
+            else
+            {
+                @foreach (var entry in _entries)
+                {
+                    <div class="subconscious-entry">
+                        <MudText Typo="Typo.caption" Color="Color.Secondary" Class="entry-timestamp">
+                            @entry.Timestamp.ToLocalTime().ToString("HH:mm:ss")
+                        </MudText>
+                        <pre class="entry-content">@entry.Content</pre>
+                    </div>
+                }
+                @if (!string.IsNullOrEmpty(_currentStreamContent))
+                {
+                    <div class="subconscious-entry streaming">
+                        <MudText Typo="Typo.caption" Color="Color.Secondary" Class="entry-timestamp">
+                            @DateTime.Now.ToString("HH:mm:ss") (streaming...)
+                        </MudText>
+                        <pre class="entry-content">@_currentStreamContent</pre>
+                    </div>
+                }
+            }
+        </div>
+    }
+    else
+    {
+        <div class="subconscious-collapsed">
+            <MudText Typo="Typo.caption" Color="Color.Secondary">
+                @_entries.Count entries — click eye to reveal
+            </MudText>
+        </div>
+    }
+</div>
+
+@code {
+    private record SubconsciousEntry(string Content, DateTime Timestamp);
+
+    private readonly List<SubconsciousEntry> _entries = [];
+    private bool _isExpanded = false;
+    private string _currentStreamContent = "";
+    private DateTime _currentStreamStart;
+
+    protected override void OnInitialized()
+    {
+        MindState.OnSubconsciousToken += HandleSubconsciousToken;
+        MindState.OnTickCompleted += HandleTickCompleted;
+    }
+
+    private async Task HandleSubconsciousToken(string token)
+    {
+        if (string.IsNullOrEmpty(_currentStreamContent))
+            _currentStreamStart = DateTime.UtcNow;
+
+        _currentStreamContent += token;
+        await InvokeAsync(StateHasChanged);
+    }
+
+    private async Task HandleTickCompleted()
+    {
+        // Finalize the streaming content into a completed entry
+        if (!string.IsNullOrWhiteSpace(_currentStreamContent))
+        {
+            _entries.Add(new SubconsciousEntry(_currentStreamContent, _currentStreamStart));
+            _currentStreamContent = "";
+
+            if (_entries.Count > 50)
+                _entries.RemoveRange(0, _entries.Count - 50);
+        }
+        else
+        {
+            // Fallback: if no streaming happened, grab from tick result
+            var result = MindState.GetLatestTickResult();
+            if (result?.SubconsciousContent is not null)
+            {
+                _entries.Add(new SubconsciousEntry(result.SubconsciousContent, result.Timestamp));
+
+                if (_entries.Count > 50)
+                    _entries.RemoveRange(0, _entries.Count - 50);
+            }
+        }
+
+        await InvokeAsync(StateHasChanged);
+    }
+
+    private void ToggleVisibility()
+    {
+        _isExpanded = !_isExpanded;
+    }
+
+    public void Dispose()
+    {
+        MindState.OnSubconsciousToken -= HandleSubconsciousToken;
+        MindState.OnTickCompleted -= HandleTickCompleted;
+    }
+}

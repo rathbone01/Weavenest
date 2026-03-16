@@ -1,0 +1,111 @@
+@using Weavenest.Services
+@inject MindStateService MindState
+@inject IJSRuntime JS
+@implements IDisposable
+
+<div class="chat-panel">
+    <div class="chat-header">
+        <MudText Typo="Typo.subtitle1" Color="Color.Primary">Conversation</MudText>
+    </div>
+
+    <div class="chat-messages" @ref="_messagesContainer">
+        @if (_messages.Count == 0)
+        {
+            <div class="chat-empty">
+                <MudText Typo="Typo.body2" Color="Color.Secondary">
+                    Waiting for Jeremy to speak...
+                </MudText>
+            </div>
+        }
+        else
+        {
+            @foreach (var msg in _messages)
+            {
+                <div class="message-bubble @(msg.IsHuman ? "human" : "mind")">
+                    <div class="message-header">
+                        <MudText Typo="Typo.caption" Color="Color.Secondary">
+                            @(msg.IsHuman ? "You" : "Jeremy") — @msg.Timestamp.ToLocalTime().ToString("HH:mm:ss")
+                        </MudText>
+                    </div>
+                    <MudText Typo="Typo.body2" Class="message-content">@msg.Content</MudText>
+                </div>
+            }
+        }
+    </div>
+
+    <div class="chat-input-area">
+        <MudTextField @bind-Value="_userInput"
+                      Placeholder="Type a message... (Enter to send)"
+                      Variant="Variant.Outlined"
+                      Lines="2"
+                      MaxLines="4"
+                      Adornment="Adornment.End"
+                      AdornmentIcon="@Icons.Material.Filled.Send"
+                      AdornmentColor="Color.Primary"
+                      OnAdornmentClick="SendMessage"
+                      OnKeyDown="HandleKeyDown"
+                      FullWidth />
+    </div>
+</div>
+
+@code {
+    private record ChatMessage(string Content, bool IsHuman, DateTime Timestamp);
+
+    private readonly List<ChatMessage> _messages = [];
+    private string _userInput = "";
+    private ElementReference _messagesContainer;
+
+    protected override void OnInitialized()
+    {
+        MindState.OnSpoke += HandleSpoke;
+
+        // Load existing messages
+        foreach (var msg in MindState.GetHumanMessages())
+            _messages.Add(new ChatMessage(msg, true, DateTime.Now));
+        foreach (var msg in MindState.GetSpokenMessages())
+            _messages.Add(new ChatMessage(msg, false, DateTime.Now));
+    }
+
+    private async Task HandleSpoke(string message)
+    {
+        _messages.Add(new ChatMessage(message, false, DateTime.Now));
+        await InvokeAsync(StateHasChanged);
+        await ScrollToBottom();
+    }
+
+    private async Task SendMessage()
+    {
+        if (string.IsNullOrWhiteSpace(_userInput)) return;
+
+        var content = _userInput.Trim();
+        _userInput = "";
+
+        _messages.Add(new ChatMessage(content, true, DateTime.Now));
+        await MindState.EnqueueHumanMessageAsync(content);
+
+        StateHasChanged();
+        await ScrollToBottom();
+    }
+
+    private async Task HandleKeyDown(KeyboardEventArgs e)
+    {
+        if (e.Key == "Enter" && !e.ShiftKey)
+        {
+            await SendMessage();
+        }
+    }
+
+    private async Task ScrollToBottom()
+    {
+        try
+        {
+            await JS.InvokeVoidAsync("chatInterop.scrollToBottom", _messagesContainer);
+        }
+        catch { }
+    }
+
+    public void Dispose()
+    {
+        MindState.OnSpoke -= HandleSpoke;
+    }
+}

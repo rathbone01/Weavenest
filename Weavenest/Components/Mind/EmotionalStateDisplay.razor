@@ -1,0 +1,81 @@
+@using Weavenest.Services
+@inject MindStateService MindState
+@implements IDisposable
+
+<div class="emotion-display">
+    <MudTooltip Text="@GetTooltipText()">
+        <div class="emotion-bars">
+            <div class="emotion-bar">
+                <span class="emotion-label">H</span>
+                <div class="emotion-track">
+                    <div class="emotion-fill" style="width: @($"{_state.Happiness * 100:F0}%"); background-color: #4CAF50;"></div>
+                </div>
+            </div>
+            <div class="emotion-bar">
+                <span class="emotion-label">S</span>
+                <div class="emotion-track">
+                    <div class="emotion-fill" style="width: @($"{_state.Sadness * 100:F0}%"); background-color: #42A5F5;"></div>
+                </div>
+            </div>
+            <div class="emotion-bar">
+                <span class="emotion-label">A</span>
+                <div class="emotion-track">
+                    <div class="emotion-fill" style="width: @($"{_state.Anger * 100:F0}%"); background-color: #EF5350;"></div>
+                </div>
+            </div>
+            <div class="emotion-bar">
+                <span class="emotion-label">F</span>
+                <div class="emotion-track">
+                    <div class="emotion-fill" style="width: @($"{_state.Fear * 100:F0}%"); background-color: #AB47BC;"></div>
+                </div>
+            </div>
+            <div class="emotion-bar">
+                <span class="emotion-label">D</span>
+                <div class="emotion-track">
+                    <div class="emotion-fill" style="width: @($"{_state.Disgust * 100:F0}%"); background-color: #8D6E63;"></div>
+                </div>
+            </div>
+            <div class="emotion-bar">
+                <span class="emotion-label">Su</span>
+                <div class="emotion-track">
+                    <div class="emotion-fill" style="width: @($"{_state.Surprise * 100:F0}%"); background-color: #FFC107;"></div>
+                </div>
+            </div>
+        </div>
+    </MudTooltip>
+</div>
+
+@code {
+    private Weavenest.DataAccess.Models.EmotionalState _state = new()
+    {
+        Happiness = 0.5f, Sadness = 0.1f, Disgust = 0.05f,
+        Fear = 0.1f, Surprise = 0.3f, Anger = 0.1f
+    };
+
+    protected override void OnInitialized()
+    {
+        _state = MindState.GetEmotionalState();
+        MindState.OnEmotionChanged += HandleEmotionChanged;
+    }
+
+    private async Task HandleEmotionChanged()
+    {
+        _state = MindState.GetEmotionalState();
+        await InvokeAsync(StateHasChanged);
+    }
+
+    private string GetTooltipText()
+    {
+        return $"Happiness: {_state.Happiness:F2}\n" +
+               $"Sadness: {_state.Sadness:F2}\n" +
+               $"Anger: {_state.Anger:F2}\n" +
+               $"Fear: {_state.Fear:F2}\n" +
+               $"Disgust: {_state.Disgust:F2}\n" +
+               $"Surprise: {_state.Surprise:F2}";
+    }
+
+    public void Dispose()
+    {
+        MindState.OnEmotionChanged -= HandleEmotionChanged;
+    }
+}

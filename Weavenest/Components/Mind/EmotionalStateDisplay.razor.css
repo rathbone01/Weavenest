@@ -1,0 +1,39 @@
+.emotion-display {
+    display: flex;
+    align-items: center;
+    padding: 0 12px;
+}
+
+.emotion-bars {
+    display: flex;
+    gap: 6px;
+    align-items: center;
+}
+
+.emotion-bar {
+    display: flex;
+    align-items: center;
+    gap: 3px;
+    width: 80px;
+}
+
+.emotion-label {
+    font-size: 0.65rem;
+    color: rgba(255, 255, 255, 0.6);
+    min-width: 16px;
+    text-align: right;
+}
+
+.emotion-track {
+    width: 60px;
+    height: 6px;
+    border-radius: 3px;
+    background-color: rgba(255, 255, 255, 0.08);
+    overflow: hidden;
+}
+
+.emotion-fill {
+    height: 100%;
+    border-radius: 3px;
+    transition: width 0.5s ease;
+}

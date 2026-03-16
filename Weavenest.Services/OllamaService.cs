@@ -1,11 +1,13 @@
 using System.Collections.Concurrent;
 using System.Runtime.CompilerServices;
+using System.Text;
+using System.Text.Json;
 using Microsoft.Extensions.Logging;
 using Microsoft.Extensions.Options;
 using OllamaSharp;
 using OllamaSharp.Models;
-using Weavenest.DataAccess.Models;
 using Weavenest.Services.Interfaces;
+using Weavenest.Services.Models;
 using Weavenest.Services.Models.Options;
 
 namespace Weavenest.Services;
@@ -13,20 +15,25 @@ namespace Weavenest.Services;
 public class OllamaService : IOllamaService
 {
     private readonly OllamaApiClient _client;
+    private readonly IHttpClientFactory _httpClientFactory;
     private readonly ILogger<OllamaService> _logger;
     private readonly OllamaOptions _options;
     private readonly ConcurrentDictionary<string, bool> _thinkingCapabilityCache = new(StringComparer.OrdinalIgnoreCase);
 
-    public OllamaService(IOptions<OllamaOptions> config, ILogger<OllamaService> logger)
+    public OllamaService(
+        IOptions<OllamaOptions> config,
+        IHttpClientFactory httpClientFactory,
+        ILogger<OllamaService> logger)
     {
         _options = config.Value;
+        _httpClientFactory = httpClientFactory;
         _logger = logger;
         var uri = new Uri(_options.BaseUrl);
         _client = new OllamaApiClient(uri, _options.Model ?? "");
     }
 
     public async IAsyncEnumerable<string> ChatStreamAsync(
-        IList<ChatMessage> history,
+        IList<OllamaChatMessage> history,
         string userMessage,
         string modelName,
         string? systemPrompt = null,
@@ -71,6 +78,133 @@ public class OllamaService : IOllamaService
         }
 
         _logger.LogInformation("Chat stream complete — model: {Model}, tokens yielded: {TokenCount}", modelName, tokenCount);
+    }
+
+    public async Task<OllamaChatResponse> ChatWithToolsAsync(
+        string systemPrompt,
+        List<OllamaChatMessage> messages,
+        List<OllamaTool>? tools,
+        string modelName,
+        CancellationToken ct = default,
+        Action<string>? onThinkToken = null)
+    {
+        var client = _httpClientFactory.CreateClient("OllamaApi");
+
+        var allMessages = new List<OllamaChatMessage>
+        {
+            new() { Role = "system", Content = systemPrompt }
+        };
+        allMessages.AddRange(messages);
+
+        // Stream when we have a thinking callback, non-stream otherwise
+        var useStreaming = onThinkToken is not null;
+
+        var chatRequest = new OllamaChatRequest
+        {
+            Model = modelName,
+            Messages = allMessages,
+            Stream = useStreaming,
+            Tools = tools
+        };
+
+        var json = JsonSerializer.Serialize(chatRequest);
+        var content = new StringContent(json, Encoding.UTF8, "application/json");
+
+        var url = $"{_options.BaseUrl.TrimEnd('/')}/api/chat";
+
+        _logger.LogInformation("ChatWithTools — model: {Model}, messages: {Count}, tools: {ToolCount}, streaming: {Streaming}",
+            modelName, allMessages.Count, tools?.Count ?? 0, useStreaming);
+
+        HttpResponseMessage response;
+        try
+        {
+            var request = new HttpRequestMessage(HttpMethod.Post, url) { Content = content };
+            response = await client.SendAsync(request,
+                useStreaming ? HttpCompletionOption.ResponseHeadersRead : HttpCompletionOption.ResponseContentRead, ct);
+        }
+        catch (HttpRequestException ex)
+        {
+            _logger.LogError(ex, "Failed to reach Ollama at {Url}", url);
+            throw;
+        }
+
+        if (!response.IsSuccessStatusCode)
+        {
+            var errorBody = await response.Content.ReadAsStringAsync(ct);
+            var statusCode = (int)response.StatusCode;
+            _logger.LogError("Ollama API error {StatusCode}: {Body}", statusCode, errorBody);
+            throw new HttpRequestException($"Ollama API error {statusCode}: {errorBody}");
+        }
+
+        if (!useStreaming)
+        {
+            var responseJson = await response.Content.ReadAsStringAsync(ct);
+            var result = JsonSerializer.Deserialize<OllamaChatResponse>(responseJson);
+            return result ?? throw new InvalidOperationException("Ollama returned an empty or unparseable response");
+        }
+
+        // Streaming: read NDJSON lines, fire thinking callbacks, accumulate full response
+        return await ReadStreamingResponseAsync(response, onThinkToken!, ct);
+    }
+
+    private async Task<OllamaChatResponse> ReadStreamingResponseAsync(
+        HttpResponseMessage response, Action<string> onThinkToken, CancellationToken ct)
+    {
+        using var stream = await response.Content.ReadAsStreamAsync(ct);
+        using var reader = new System.IO.StreamReader(stream);
+
+        var thinkingBuilder = new StringBuilder();
+        var contentBuilder = new StringBuilder();
+        OllamaChatResponse? finalResponse = null;
+
+        string? line;
+        while ((line = await reader.ReadLineAsync(ct)) is not null && !ct.IsCancellationRequested)
+        {
+            if (string.IsNullOrWhiteSpace(line))
+                continue;
+
+            OllamaChatResponse? chunk;
+            try
+            {
+                chunk = JsonSerializer.Deserialize<OllamaChatResponse>(line);
+            }
+            catch (JsonException ex)
+            {
+                _logger.LogWarning(ex, "Failed to parse streaming chunk");
+                continue;
+            }
+
+            if (chunk is null) continue;
+
+            // Accumulate thinking tokens and fire callback
+            if (!string.IsNullOrEmpty(chunk.Message.Thinking))
+            {
+                thinkingBuilder.Append(chunk.Message.Thinking);
+                onThinkToken(chunk.Message.Thinking);
+            }
+
+            // Accumulate content tokens
+            if (!string.IsNullOrEmpty(chunk.Message.Content))
+            {
+                contentBuilder.Append(chunk.Message.Content);
+            }
+
+            if (chunk.Done)
+            {
+                // Final chunk — may contain tool_calls
+                finalResponse = chunk;
+                break;
+            }
+        }
+
+        if (finalResponse is null)
+            throw new InvalidOperationException("Ollama stream ended without a final response");
+
+        // Build the complete response with accumulated content
+        finalResponse.Message.Thinking = thinkingBuilder.Length > 0 ? thinkingBuilder.ToString() : null;
+        finalResponse.Message.Content = contentBuilder.ToString();
+
+        return finalResponse;
     }
 
     public async Task<IEnumerable<string>> GetModelsAsync(CancellationToken cancellationToken = default)
@@ -142,11 +276,12 @@ public class OllamaService : IOllamaService
         }
     }
 
-    private static OllamaSharp.Models.Chat.ChatRole MapRole(DataAccess.Models.ChatRole role) => role switch
+    private static OllamaSharp.Models.Chat.ChatRole MapRole(string role) => role.ToLowerInvariant() switch
     {
-        DataAccess.Models.ChatRole.System => OllamaSharp.Models.Chat.ChatRole.System,
-        DataAccess.Models.ChatRole.User => OllamaSharp.Models.Chat.ChatRole.User,
-        DataAccess.Models.ChatRole.Assistant => OllamaSharp.Models.Chat.ChatRole.Assistant,
+        "system" => OllamaSharp.Models.Chat.ChatRole.System,
+        "user" => OllamaSharp.Models.Chat.ChatRole.User,
+        "assistant" => OllamaSharp.Models.Chat.ChatRole.Assistant,
+        "tool" => OllamaSharp.Models.Chat.ChatRole.Tool,
         _ => OllamaSharp.Models.Chat.ChatRole.User
     };
 }

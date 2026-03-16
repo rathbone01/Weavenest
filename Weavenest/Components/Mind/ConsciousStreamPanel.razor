@@ -1,0 +1,59 @@
+@using Weavenest.Services
+@inject MindStateService MindState
+@implements IDisposable
+
+<div class="conscious-panel">
+    <div class="conscious-header">
+        <MudText Typo="Typo.subtitle1" Color="Color.Secondary">Conscious Stream</MudText>
+    </div>
+
+    <div class="conscious-entries">
+        @if (_entries.Count == 0)
+        {
+            <div class="conscious-empty">
+                <MudText Typo="Typo.caption" Color="Color.Secondary">
+                    Awaiting first thought...
+                </MudText>
+            </div>
+        }
+        else
+        {
+            @foreach (var entry in _entries)
+            {
+                <div class="conscious-entry">
+                    <MudText Typo="Typo.caption" Color="Color.Secondary" Class="entry-timestamp">
+                        @entry.Timestamp.ToLocalTime().ToString("HH:mm:ss")
+                    </MudText>
+                    <MudText Typo="Typo.body2" Class="entry-content">@entry.Content</MudText>
+                </div>
+            }
+        }
+    </div>
+</div>
+
+@code {
+    private record ThoughtEntry(string Content, DateTime Timestamp);
+
+    private readonly List<ThoughtEntry> _entries = [];
+
+    protected override void OnInitialized()
+    {
+        MindState.OnConsciousThought += HandleConsciousThought;
+    }
+
+    private async Task HandleConsciousThought(string thought)
+    {
+        _entries.Add(new ThoughtEntry(thought, DateTime.Now));
+
+        // Keep last 100 entries
+        if (_entries.Count > 100)
+            _entries.RemoveRange(0, _entries.Count - 100);
+
+        await InvokeAsync(StateHasChanged);
+    }
+
+    public void Dispose()
+    {
+        MindState.OnConsciousThought -= HandleConsciousThought;
+    }
+}

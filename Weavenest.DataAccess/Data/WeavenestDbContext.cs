@@ -8,10 +8,10 @@ public class WeavenestDbContext : DbContext
     public WeavenestDbContext(DbContextOptions<WeavenestDbContext> options)
         : base(options) { }
 
-    public DbSet<User> Users => Set<User>();
-    public DbSet<ChatSession> Sessions => Set<ChatSession>();
-    public DbSet<ChatMessage> Messages => Set<ChatMessage>();
-    public DbSet<Folder> Folders => Set<Folder>();
+    public DbSet<EmotionalState> EmotionalStates => Set<EmotionalState>();
+    public DbSet<LongTermMemory> LongTermMemories => Set<LongTermMemory>();
+    public DbSet<TickLog> TickLogs => Set<TickLog>();
+    public DbSet<HumanMessage> HumanMessages => Set<HumanMessage>();
 
     protected override void OnModelCreating(ModelBuilder modelBuilder)
     {

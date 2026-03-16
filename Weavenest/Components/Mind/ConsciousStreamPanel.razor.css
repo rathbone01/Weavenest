@@ -1,0 +1,47 @@
+.conscious-panel {
+    display: flex;
+    flex-direction: column;
+    height: 100%;
+}
+
+.conscious-header {
+    padding: 12px 16px;
+    border-bottom: 1px solid rgba(255, 255, 255, 0.08);
+}
+
+.conscious-entries {
+    flex: 1;
+    overflow-y: auto;
+    padding: 12px;
+    display: flex;
+    flex-direction: column;
+    gap: 8px;
+}
+
+.conscious-empty {
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    height: 100%;
+    opacity: 0.4;
+}
+
+.conscious-entry {
+    padding: 8px 12px;
+    border-radius: 8px;
+    background-color: rgba(255, 255, 255, 0.03);
+    border-left: 2px solid rgba(206, 147, 216, 0.3);
+}
+
+.entry-timestamp {
+    opacity: 0.5;
+    margin-bottom: 2px;
+}
+
+.entry-content {
+    opacity: 0.75;
+    white-space: pre-wrap;
+    word-break: break-word;
+    font-size: 0.85rem;
+    line-height: 1.4;
+}
