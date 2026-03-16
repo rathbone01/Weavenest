@@ -19,6 +19,7 @@ public class LongTermMemoryConfiguration : IEntityTypeConfiguration<LongTermMemo
         builder.Property(m => m.LastAccessedAt).IsRequired();
         builder.Property(m => m.LinkedMemoryIdsJson).IsRequired().HasDefaultValue("[]");
         builder.Property(m => m.IsSuperseded).IsRequired().HasDefaultValue(false);
+        builder.Property(m => m.EmbeddingJson).IsRequired(false);
 
         builder.HasIndex(m => m.LastAccessedAt);
         builder.HasIndex(m => m.IsSuperseded);

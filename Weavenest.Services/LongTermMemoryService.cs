@@ -4,6 +4,7 @@ using Microsoft.Extensions.Logging;
 using Microsoft.Extensions.Options;
 using Weavenest.DataAccess.Data;
 using Weavenest.DataAccess.Models;
+using Weavenest.Services.Interfaces;
 using Weavenest.Services.Models.Options;
 
 namespace Weavenest.Services;
@@ -11,15 +12,18 @@ namespace Weavenest.Services;
 public class LongTermMemoryService
 {
     private readonly WeavenestDbContext _db;
+    private readonly IOllamaService _ollama;
     private readonly MindSettings _settings;
     private readonly ILogger<LongTermMemoryService> _logger;
 
     public LongTermMemoryService(
         WeavenestDbContext db,
+        IOllamaService ollama,
         IOptions<MindSettings> settings,
         ILogger<LongTermMemoryService> logger)
     {
         _db = db;
+        _ollama = ollama;
         _settings = settings.Value;
         _logger = logger;
     }
@@ -56,11 +60,16 @@ public class LongTermMemoryService
             IsSuperseded = false
         };
 
+        // Generate semantic embedding — failures are non-fatal; memory is stored without it
+        var embedding = await _ollama.GenerateEmbeddingAsync(content);
+        if (embedding is not null)
+            memory.EmbeddingJson = JsonSerializer.Serialize(embedding);
+
         _db.LongTermMemories.Add(memory);
         await _db.SaveChangesAsync();
 
-        _logger.LogInformation("Stored {Category} memory: {Preview} (confidence: {Confidence:F2})",
-            category, content.Length > 60 ? content[..60] + "..." : content, confidence);
+        _logger.LogInformation("Stored {Category} memory: {Preview} (confidence: {Confidence:F2}, embedding: {HasEmbed})",
+            category, content.Length > 60 ? content[..60] + "..." : content, confidence, embedding is not null);
 
         return memory;
     }
@@ -73,10 +82,17 @@ public class LongTermMemoryService
             .Where(m => !m.IsSuperseded)
             .ToListAsync();
 
+        if (memories.Count == 0) return [];
+
+        // Generate a query embedding from the tags joined as a sentence
+        float[]? queryEmbedding = null;
+        if (queryTags.Length > 0)
+        {
+            queryEmbedding = await _ollama.GenerateEmbeddingAsync(string.Join(" ", queryTags));
+        }
+
         var now = DateTime.UtcNow;
-        var maxAge = memories.Count > 0
-            ? memories.Max(m => (now - m.LastAccessedAt).TotalHours)
-            : 1.0;
+        var maxAge = memories.Max(m => (now - m.LastAccessedAt).TotalHours);
         if (maxAge < 1.0) maxAge = 1.0;
 
         var scored = memories.Select(m =>
@@ -89,19 +105,28 @@ public class LongTermMemoryService
             var ageHours = (now - m.LastAccessedAt).TotalHours;
             var recencyScore = 1.0f - (float)(ageHours / maxAge);
 
+            var semanticScore = 0f;
+            if (queryEmbedding is not null && m.EmbeddingJson is not null)
+            {
+                var memEmbed = ParseEmbedding(m.EmbeddingJson);
+                if (memEmbed is not null)
+                    semanticScore = CosineSimilarity(queryEmbedding, memEmbed);
+            }
+
             var score = _settings.RelevanceWeight * tagOverlap
+                      + _settings.SemanticWeight * semanticScore
                       + _settings.RecencyWeight * recencyScore;
 
-            return (Memory: m, Score: score, TagOverlap: tagOverlap);
+            return (Memory: m, Score: score, TagOverlap: tagOverlap, SemanticScore: semanticScore);
         })
-        // Require at least some tag relevance — pure recency is not enough to include a memory
-        .Where(x => x.TagOverlap > 0)
+        // Include if there's any tag match OR strong semantic similarity — exclude pure recency matches
+        .Where(x => x.TagOverlap > 0 || x.SemanticScore > 0.4f)
         .OrderByDescending(x => x.Score)
         .Take(retrievalCount)
         .ToList();
 
         // Update LastAccessedAt for retrieved memories
-        foreach (var (memory, _, _) in scored)
+        foreach (var (memory, _, _, _) in scored)
         {
             memory.LastAccessedAt = now;
         }
@@ -198,6 +223,26 @@ public class LongTermMemoryService
         });
 
         return string.Join("\n", lines);
+    }
+
+    private static float[]? ParseEmbedding(string? json)
+    {
+        if (string.IsNullOrEmpty(json)) return null;
+        try { return JsonSerializer.Deserialize<float[]>(json); }
+        catch { return null; }
+    }
+
+    private static float CosineSimilarity(float[] a, float[] b)
+    {
+        if (a.Length != b.Length) return 0f;
+        float dot = 0f, normA = 0f, normB = 0f;
+        for (var i = 0; i < a.Length; i++)
+        {
+            dot += a[i] * b[i];
+            normA += a[i] * a[i];
+            normB += b[i] * b[i];
+        }
+        return normA == 0f || normB == 0f ? 0f : dot / (MathF.Sqrt(normA) * MathF.Sqrt(normB));
     }
 
     private static string[] ParseTags(string json)

@@ -13,4 +13,6 @@ public class LongTermMemory
     public string LinkedMemoryIdsJson { get; set; } = "[]";
     public string? EmotionalContextJson { get; set; }
     public bool IsSuperseded { get; set; }
+    /// <summary>JSON-serialized float[] from the embedding model. Null for memories created before semantic search was added.</summary>
+    public string? EmbeddingJson { get; set; }
 }

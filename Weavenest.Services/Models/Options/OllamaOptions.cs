@@ -6,5 +6,6 @@ public class OllamaOptions
 
     public required string BaseUrl { get; set; }
     public string? Model { get; set; }
+    public string EmbeddingModel { get; set; } = "nomic-embed-text";
     public int DefaultContextLength { get; set; } = 2048;
 }

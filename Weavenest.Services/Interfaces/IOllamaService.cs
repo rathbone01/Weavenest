@@ -20,6 +20,9 @@ public interface IOllamaService
         CancellationToken ct = default,
         Action<string>? onThinkToken = null);
 
+    /// <summary>Generate a semantic embedding vector for the given text. Returns null if the embedding model is unavailable.</summary>
+    Task<float[]?> GenerateEmbeddingAsync(string text, CancellationToken ct = default);
+
     Task<IEnumerable<string>> GetModelsAsync(CancellationToken cancellationToken = default);
 
     Task<ModelContextInfo> GetModelContextInfoAsync(string modelName, CancellationToken cancellationToken = default);

@@ -139,6 +139,36 @@ public class OllamaService : IOllamaService
         return result ?? throw new InvalidOperationException("Ollama returned an empty or unparseable response");
     }
 
+    public async Task<float[]?> GenerateEmbeddingAsync(string text, CancellationToken ct = default)
+    {
+        var client = _httpClientFactory.CreateClient("OllamaApi");
+        var embedModel = _options.EmbeddingModel;
+        var url = $"{_options.BaseUrl.TrimEnd('/')}/api/embed";
+
+        var request = new OllamaEmbedRequest { Model = embedModel, Input = text };
+        var json = JsonSerializer.Serialize(request);
+        var content = new StringContent(json, Encoding.UTF8, "application/json");
+
+        try
+        {
+            var response = await client.PostAsync(url, content, ct);
+            if (!response.IsSuccessStatusCode)
+            {
+                _logger.LogWarning("Embedding request failed ({Status}) for model {Model}", response.StatusCode, embedModel);
+                return null;
+            }
+
+            var responseJson = await response.Content.ReadAsStringAsync(ct);
+            var result = JsonSerializer.Deserialize<OllamaEmbedResponse>(responseJson);
+            return result?.Embeddings.FirstOrDefault();
+        }
+        catch (Exception ex)
+        {
+            _logger.LogWarning(ex, "Failed to generate embedding — model: {Model}", embedModel);
+            return null;
+        }
+    }
+
     public async Task<IEnumerable<string>> GetModelsAsync(CancellationToken cancellationToken = default)
     {
         try
