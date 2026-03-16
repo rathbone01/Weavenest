@@ -34,7 +34,8 @@
     </div>
 
     <div class="chat-input-area" @ref="_inputContainer">
-        <MudTextField @bind-Value="_userInput"
+        <MudTextField Value="_userInput"
+                      ValueChanged="@((string v) => OnInputChanged(v))"
                       Placeholder="Type a message... (Enter to send, Shift+Enter for new line)"
                       Variant="Variant.Outlined"
                       Lines="2"
@@ -76,6 +77,12 @@
         }
     }
 
+    private void OnInputChanged(string value)
+    {
+        _userInput = value;
+        MindState.SetUserTyping(!string.IsNullOrEmpty(value));
+    }
+
     [JSInvokable]
     public async Task SendMessageFromJs(string value)
     {
@@ -96,6 +103,7 @@
 
         var content = _userInput.Trim();
         _userInput = "";
+        MindState.SetUserTyping(false); // Clear gate so next tick fires immediately
 
         _messages.Add(new ChatMessage(content, true, DateTime.Now));
         await MindState.EnqueueHumanMessageAsync(content);

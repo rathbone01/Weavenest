@@ -45,6 +45,10 @@ public class MindStateService
         Timestamp = DateTime.UtcNow
     };
 
+    // Volatile so ConsciousnessLoopService can read it from a background thread without a lock.
+    // A single bool write is inherently atomic; volatile just ensures CPU cache visibility.
+    private volatile bool _isUserTyping;
+
     private readonly List<ShortTermEntry> _shortTermMemory = [];
     private readonly ConcurrentQueue<string> _pendingHumanMessages = new();
     private TickResult? _latestTickResult;
@@ -94,6 +98,11 @@ public class MindStateService
             _shortTermMemory.AddRange(entries);
         }
     }
+
+    public bool IsUserTyping => _isUserTyping;
+
+    /// <summary>Called by the UI when the user starts or stops composing a message.</summary>
+    public void SetUserTyping(bool typing) => _isUserTyping = typing;
 
     public bool TryDequeueHumanMessage(out string? message)
     {

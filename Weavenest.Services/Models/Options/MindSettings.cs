@@ -4,7 +4,8 @@ public class MindSettings
 {
     public const string SectionName = "MindSettings";
 
-    public int TickIntervalSeconds { get; set; } = 30;
+    /// <summary>Minimum gap in seconds between consecutive ticks. Ticks otherwise fire continuously.</summary>
+    public int MinTickGapSeconds { get; set; } = 2;
     public int ShortTermMemoryCap { get; set; } = 50;
     public int ShortTermMemoryAgeMinutes { get; set; } = 60;
     public float MaxEmotionDeltaPerTick { get; set; } = 0.1f;

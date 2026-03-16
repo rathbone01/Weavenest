@@ -39,7 +39,7 @@ public class ConsciousnessLoopService : BackgroundService
 
     public override async Task StartAsync(CancellationToken cancellationToken)
     {
-        _logger.LogInformation("ConsciousnessLoop starting — tick interval: {Interval}s", _settings.TickIntervalSeconds);
+        _logger.LogInformation("ConsciousnessLoop starting — continuous mode, min gap: {Gap}s, pauses while user is typing", _settings.MinTickGapSeconds);
 
         // Recovery: load any unprocessed human messages into the queue
         using var scope = _scopeFactory.CreateScope();
@@ -78,11 +78,16 @@ public class ConsciousnessLoopService : BackgroundService
 
         while (!stoppingToken.IsCancellationRequested)
         {
-            await Task.Delay(TimeSpan.FromSeconds(_settings.TickIntervalSeconds), stoppingToken);
+            // Gate: pause while the user is actively composing a message so we don't
+            // waste a full Ollama call the instant before they hit send.
+            while (_mindState.IsUserTyping && !stoppingToken.IsCancellationRequested)
+                await Task.Delay(250, stoppingToken);
 
             if (!await _tickGuard.WaitAsync(0, stoppingToken))
             {
+                // Shouldn't normally happen — previous tick is still running.
                 _logger.LogDebug("Tick skipped — previous tick still running");
+                await Task.Delay(100, stoppingToken);
                 continue;
             }
 
@@ -97,12 +102,16 @@ public class ConsciousnessLoopService : BackgroundService
             }
             catch (Exception ex)
             {
-                _logger.LogError(ex, "Tick failed — mind sleeps this cycle");
+                _logger.LogError(ex, "Tick failed");
             }
             finally
             {
                 _tickGuard.Release();
             }
+
+            // Minimum cooldown between ticks — prevents tight loops if Ollama errors fast.
+            if (_settings.MinTickGapSeconds > 0)
+                await Task.Delay(TimeSpan.FromSeconds(_settings.MinTickGapSeconds), stoppingToken);
         }
     }
 
