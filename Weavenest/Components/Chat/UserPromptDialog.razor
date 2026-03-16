@@ -3,21 +3,22 @@
 <MudDialog>
     <TitleContent>
         <MudText Typo="Typo.h6">
-            <MudIcon Icon="@Icons.Material.Filled.Tune" Class="mr-2" />
-            System Prompt
+            <MudIcon Icon="@Icons.Material.Filled.Psychology" Class="mr-2" />
+            User Memory
         </MudText>
     </TitleContent>
     <DialogContent>
         <MudText Typo="Typo.body2" Class="mb-3" Style="opacity: 0.7;">
-            This prompt is sent as context before every conversation in this session.
+            Personal instructions applied to every conversation. Tell the assistant about
+            your preferences, context, or how you like responses formatted.
         </MudText>
-        <MudTextField @bind-Value="SystemPrompt"
-                      Placeholder="e.g. You are a concise assistant. Always reply in bullet points."
+        <MudTextField @bind-Value="UserPrompt"
+                      Placeholder="e.g. I'm a C# developer. I prefer concise answers with code examples."
                       Variant="Variant.Outlined"
                       Lines="5"
                       Sizing="InputSizing.Auto"
                       MaxLines="12"
-                      Label="System Prompt"
+                      Label="User Memory"
                       FullWidth="true" />
     </DialogContent>
     <DialogActions>
@@ -33,15 +34,15 @@
     private IMudDialogInstance MudDialog { get; set; } = default!;
 
     [Parameter]
-    public string? SystemPrompt { get; set; }
+    public string? UserPrompt { get; set; }
 
-    private void Save() => MudDialog.Close(DialogResult.Ok(SystemPrompt));
+    private void Save() => MudDialog.Close(DialogResult.Ok(UserPrompt));
 
     private void Cancel() => MudDialog.Cancel();
 
     private void Clear()
     {
-        SystemPrompt = null;
+        UserPrompt = null;
         MudDialog.Close(DialogResult.Ok<string?>(null));
     }
 }

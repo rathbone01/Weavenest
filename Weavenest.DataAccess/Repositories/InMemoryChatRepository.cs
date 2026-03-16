@@ -97,4 +97,16 @@ public class InMemoryChatRepository : IChatRepository
         session.UpdatedAt = DateTime.UtcNow;
         return Task.FromResult(session);
     }
+
+    public Task<IReadOnlyList<ChatSession>> SearchSessionsAsync(Guid userId, string query)
+    {
+        var normalizedQuery = query.Trim();
+        var results = _sessions.Values
+            .Where(s => s.UserId == userId &&
+                (s.Title.Contains(normalizedQuery, StringComparison.OrdinalIgnoreCase) ||
+                 s.Messages.Any(m => m.Content.Contains(normalizedQuery, StringComparison.OrdinalIgnoreCase))))
+            .OrderByDescending(s => s.UpdatedAt)
+            .ToList() as IReadOnlyList<ChatSession>;
+        return Task.FromResult(results!);
+    }
 }

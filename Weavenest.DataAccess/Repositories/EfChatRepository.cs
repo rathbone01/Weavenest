@@ -129,4 +129,18 @@ public class EfChatRepository(IDbContextFactory<WeavenestDbContext> contextFacto
         await context.SaveChangesAsync();
         return session;
     }
+
+    public async Task<IReadOnlyList<ChatSession>> SearchSessionsAsync(Guid userId, string query)
+    {
+        await using var context = await contextFactory.CreateDbContextAsync();
+
+        var normalizedQuery = query.Trim();
+
+        return await context.Sessions
+            .Where(s => s.UserId == userId &&
+                (s.Title.Contains(normalizedQuery) ||
+                 s.Messages.Any(m => m.Content.Contains(normalizedQuery))))
+            .OrderByDescending(s => s.UpdatedAt)
+            .ToListAsync();
+    }
 }

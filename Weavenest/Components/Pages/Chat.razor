@@ -12,6 +12,7 @@
 @inject IJSRuntime JSRuntime
 @inject ILogger<Chat> Logger
 @inject IUserIdentityService UserIdentity
+@inject IUserRepository UserRepo
 @implements IDisposable
 
 <PageTitle>Chat - Weavenest</PageTitle>
@@ -29,10 +30,10 @@
         <MudSpacer />
         <ContextWindowDisplay EstimatedTokens="_estimatedTokenCount"
                               ContextLength="_contextLength" />
-        <MudTooltip Text="@SystemPromptTooltip">
-            <MudIconButton Icon="@Icons.Material.Filled.Tune"
-                           Color="@(Settings.SystemPrompt is not null ? Color.Primary : Color.Default)"
-                           OnClick="OpenSettingsDialog"
+        <MudTooltip Text="@UserPromptTooltip">
+            <MudIconButton Icon="@Icons.Material.Filled.Psychology"
+                           Color="@(!string.IsNullOrWhiteSpace(Settings.UserPrompt) ? Color.Primary : Color.Default)"
+                           OnClick="OpenUserMemoryDialog"
                            Class="ml-1" />
         </MudTooltip>
     </div>

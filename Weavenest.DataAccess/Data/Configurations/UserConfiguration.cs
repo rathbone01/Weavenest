@@ -23,6 +23,10 @@ public class UserConfiguration : IEntityTypeConfiguration<User>
             .IsRequired()
             .HasMaxLength(256);
 
+        builder.Property(u => u.UserPrompt)
+            .HasColumnType("nvarchar(max)")
+            .IsRequired(false);
+
         builder.Property(u => u.CreatedAt)
             .IsRequired();
 

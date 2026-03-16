@@ -12,6 +12,12 @@ public class EfUserRepository(IDbContextFactory<WeavenestDbContext> contextFacto
         return await context.Users.FirstOrDefaultAsync(u => u.Username == username);
     }
 
+    public async Task<User?> GetByIdAsync(Guid userId)
+    {
+        await using var context = await contextFactory.CreateDbContextAsync();
+        return await context.Users.FindAsync(userId);
+    }
+
     public async Task<bool> UsernameExistsAsync(string username)
     {
         await using var context = await contextFactory.CreateDbContextAsync();
@@ -31,5 +37,16 @@ public class EfUserRepository(IDbContextFactory<WeavenestDbContext> contextFacto
         context.Users.Add(user);
         await context.SaveChangesAsync();
         return user;
+    }
+
+    public async Task UpdateUserPromptAsync(Guid userId, string? userPrompt)
+    {
+        await using var context = await contextFactory.CreateDbContextAsync();
+
+        var user = await context.Users.FindAsync(userId)
+            ?? throw new KeyNotFoundException($"User {userId} not found");
+
+        user.UserPrompt = userPrompt;
+        await context.SaveChangesAsync();
     }
 }

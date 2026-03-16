@@ -13,4 +13,5 @@ public interface IChatRepository
     Task<IReadOnlyList<ChatMessage>> GetMessagesAsync(Guid sessionId);
     Task<ChatSession> AddSessionToFolderAsync(Guid sessionId, Guid folderId);
     Task<ChatSession> RemoveSessionFromFolderAsync(Guid sessionId);
+    Task<IReadOnlyList<ChatSession>> SearchSessionsAsync(Guid userId, string query);
 }

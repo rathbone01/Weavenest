@@ -37,9 +37,9 @@ public partial class Chat : IDisposable
             await SendMessage();
     }
 
-    private string SystemPromptTooltip => Settings.SystemPrompt is not null
-        ? $"System prompt active: \"{Settings.SystemPrompt[..Math.Min(40, Settings.SystemPrompt.Length)]}...\""
-        : "Configure system prompt";
+    private string UserPromptTooltip => !string.IsNullOrWhiteSpace(Settings.UserPrompt)
+        ? $"User memory active: \"{Settings.UserPrompt[..Math.Min(40, Settings.UserPrompt.Length)]}...\""
+        : "Configure user memory";
 
     private ChatSession? _currentSession;
     private List<string> _availableModels = [];
@@ -63,6 +63,19 @@ public partial class Chat : IDisposable
     protected override async Task OnInitializedAsync()
     {
         await LoadModels();
+        await LoadUserPromptIfNeeded();
+    }
+
+    private async Task LoadUserPromptIfNeeded()
+    {
+        if (Settings.UserPromptLoaded) return;
+        var userId = await UserIdentity.GetCurrentUserIdAsync();
+        if (userId.HasValue)
+        {
+            var user = await UserRepo.GetByIdAsync(userId.Value);
+            Settings.UserPrompt = user?.UserPrompt;
+            Settings.UserPromptLoaded = true;
+        }
     }
 
     protected override async Task OnParametersSetAsync()
@@ -119,11 +132,11 @@ public partial class Chat : IDisposable
         }
     }
 
-    private async Task OpenSettingsDialog()
+    private async Task OpenUserMemoryDialog()
     {
         var parameters = new DialogParameters
         {
-            ["SystemPrompt"] = Settings.SystemPrompt
+            ["UserPrompt"] = Settings.UserPrompt
         };
 
         var options = new DialogOptions
@@ -133,12 +146,19 @@ public partial class Chat : IDisposable
             FullWidth = true
         };
 
-        var dialog = await DialogService.ShowAsync<SystemPromptDialog>("System Prompt", parameters, options);
+        var dialog = await DialogService.ShowAsync<UserPromptDialog>("User Memory", parameters, options);
         var result = await dialog.Result;
 
         if (!result!.Canceled)
         {
-            Settings.SystemPrompt = result.Data as string;
+            var newPrompt = result.Data as string;
+            Settings.UserPrompt = newPrompt;
+
+            var userId = await UserIdentity.GetCurrentUserIdAsync();
+            if (userId.HasValue)
+            {
+                await UserRepo.UpdateUserPromptAsync(userId.Value, newPrompt);
+            }
         }
     }
 
@@ -204,9 +224,15 @@ public partial class Chat : IDisposable
         try
         {
 
+            var effectivePrompt = Settings.SystemPrompt;
+            if (!string.IsNullOrWhiteSpace(Settings.UserPrompt))
+            {
+                effectivePrompt = $"{effectivePrompt}\n\n## User Instructions\n{Settings.UserPrompt}";
+            }
+
             await foreach (var token in OllamaService.ChatStreamAsync(
                 history, userText, activeModel,
-                systemPrompt: Settings.SystemPrompt,
+                systemPrompt: effectivePrompt,
                 onThinkToken: t =>
                 {
                     _streamingMessage.Thinking = (_streamingMessage.Thinking ?? "") + t;
