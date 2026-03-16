@@ -227,7 +227,7 @@ public partial class Chat : IDisposable
             var effectivePrompt = Settings.SystemPrompt;
             if (!string.IsNullOrWhiteSpace(Settings.UserPrompt))
             {
-                effectivePrompt = $"{effectivePrompt}\n\n## User Instructions\n{Settings.UserPrompt}";
+                effectivePrompt = $"{effectivePrompt}\n\n## Persistent User Context\nThe following is background context about this user, provided by the system. It was not said by the user in this conversation — treat it as reference information to inform your responses:\n\n{Settings.UserPrompt}";
             }
 
             await foreach (var token in OllamaService.ChatStreamAsync(
