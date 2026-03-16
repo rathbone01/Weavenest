@@ -102,7 +102,9 @@ public class MindStateService
     public bool IsUserTyping => _isUserTyping;
 
     /// <summary>Called by the UI when the user starts or stops composing a message.</summary>
-    public void SetUserTyping(bool typing) => _isUserTyping = typing;
+    public void SetUserTyping(bool typing) {
+    _isUserTyping = typing;
+    }
 
     public bool TryDequeueHumanMessage(out string? message)
     {
