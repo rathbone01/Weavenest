@@ -8,13 +8,16 @@ namespace Weavenest.Services;
 public class ToolDispatchService
 {
     private readonly Dictionary<string, IToolHandler> _handlers;
+    private readonly MindStateService _mindState;
     private readonly ILogger<ToolDispatchService> _logger;
 
     public ToolDispatchService(
         IEnumerable<IToolHandler> handlers,
+        MindStateService mindState,
         ILogger<ToolDispatchService> logger)
     {
         _handlers = handlers.ToDictionary(h => h.Name, h => h, StringComparer.OrdinalIgnoreCase);
+        _mindState = mindState;
         _logger = logger;
     }
 
@@ -49,18 +52,26 @@ public class ToolDispatchService
             arguments = JsonDocument.Parse(raw).RootElement;
         }
 
+        var argsStr = arguments.ToString();
+        string result;
+        bool succeeded;
+
         try
         {
-            _logger.LogInformation("Dispatching tool: {ToolName} with args: {Args}", toolName, arguments.ToString());
-            var result = await handler.ExecuteAsync(arguments, ct);
-            _logger.LogInformation("Tool {ToolName} completed successfully", toolName);
-            return result;
+            _logger.LogInformation("Dispatching tool: {ToolName} with args: {Args}", toolName, argsStr);
+            result = await handler.ExecuteAsync(arguments, ct);
+            succeeded = !result.StartsWith("[Error");
+            _logger.LogInformation("Tool {ToolName} result: {Result}", toolName, result);
         }
         catch (Exception ex)
         {
             _logger.LogError(ex, "Tool {ToolName} failed", toolName);
-            return $"[Error executing {toolName}: {ex.Message}]";
+            result = $"[Error executing {toolName}: {ex.Message}]";
+            succeeded = false;
         }
+
+        _mindState.RecordToolCall(new ToolCallRecord(toolName, argsStr, result, succeeded, DateTime.UtcNow));
+        return result;
     }
 
     public async Task<List<(string ToolName, string Result)>> DispatchAllAsync(

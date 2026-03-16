@@ -1,0 +1,57 @@
+@using Weavenest.Services
+@inject MindStateService MindState
+@implements IDisposable
+
+<div class="toollog-panel">
+    <div class="toollog-header">
+        <MudText Typo="Typo.subtitle2" Color="Color.Secondary">Tool Calls</MudText>
+        <MudText Typo="Typo.caption" Color="Color.Secondary" Class="toollog-count">@_entries.Count</MudText>
+    </div>
+
+    <div class="toollog-entries">
+        @if (_entries.Count == 0)
+        {
+            <div class="toollog-empty">
+                <MudText Typo="Typo.caption" Color="Color.Secondary">No tool calls yet...</MudText>
+            </div>
+        }
+        else
+        {
+            @foreach (var entry in Enumerable.Reverse(_entries))
+            {
+                <div class="toollog-entry @(entry.Succeeded ? "success" : "failure")">
+                    <div class="toollog-entry-header">
+                        <span class="toollog-icon">@(entry.Succeeded ? "✓" : "✗")</span>
+                        <span class="toollog-name">@entry.ToolName</span>
+                        <span class="toollog-time">@entry.Timestamp.ToLocalTime().ToString("HH:mm:ss")</span>
+                    </div>
+                    <div class="toollog-args">@entry.Arguments</div>
+                    <div class="toollog-result">@entry.Result</div>
+                </div>
+            }
+        }
+    </div>
+</div>
+
+@code {
+    private readonly List<ToolCallRecord> _entries = [];
+
+    protected override void OnInitialized()
+    {
+        _entries.AddRange(MindState.GetToolCallLog());
+        MindState.OnToolCall += HandleToolCall;
+    }
+
+    private async Task HandleToolCall(ToolCallRecord record)
+    {
+        _entries.Add(record);
+        if (_entries.Count > 100)
+            _entries.RemoveRange(0, _entries.Count - 100);
+        await InvokeAsync(StateHasChanged);
+    }
+
+    public void Dispose()
+    {
+        MindState.OnToolCall -= HandleToolCall;
+    }
+}

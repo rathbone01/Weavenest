@@ -33,9 +33,9 @@
         }
     </div>
 
-    <div class="chat-input-area">
+    <div class="chat-input-area" @ref="_inputContainer">
         <MudTextField @bind-Value="_userInput"
-                      Placeholder="Type a message... (Enter to send)"
+                      Placeholder="Type a message... (Enter to send, Shift+Enter for new line)"
                       Variant="Variant.Outlined"
                       Lines="2"
                       MaxLines="4"
@@ -43,7 +43,6 @@
                       AdornmentIcon="@Icons.Material.Filled.Send"
                       AdornmentColor="Color.Primary"
                       OnAdornmentClick="SendMessage"
-                      OnKeyDown="HandleKeyDown"
                       FullWidth />
     </div>
 </div>
@@ -54,16 +53,34 @@
     private readonly List<ChatMessage> _messages = [];
     private string _userInput = "";
     private ElementReference _messagesContainer;
+    private ElementReference _inputContainer;
+    private DotNetObjectReference<ChatPanel>? _dotnetRef;
 
     protected override void OnInitialized()
     {
         MindState.OnSpoke += HandleSpoke;
 
-        // Load existing messages
         foreach (var msg in MindState.GetHumanMessages())
             _messages.Add(new ChatMessage(msg, true, DateTime.Now));
         foreach (var msg in MindState.GetSpokenMessages())
             _messages.Add(new ChatMessage(msg, false, DateTime.Now));
+    }
+
+    protected override async Task OnAfterRenderAsync(bool firstRender)
+    {
+        if (firstRender)
+        {
+            _dotnetRef = DotNetObjectReference.Create(this);
+            try { await JS.InvokeVoidAsync("chatInterop.registerEnterSend", _inputContainer, _dotnetRef); }
+            catch { }
+        }
+    }
+
+    [JSInvokable]
+    public async Task SendMessageFromJs(string value)
+    {
+        _userInput = value;
+        await SendMessage();
     }
 
     private async Task HandleSpoke(string message)
@@ -87,14 +104,6 @@
         await ScrollToBottom();
     }
 
-    private async Task HandleKeyDown(KeyboardEventArgs e)
-    {
-        if (e.Key == "Enter" && !e.ShiftKey)
-        {
-            await SendMessage();
-        }
-    }
-
     private async Task ScrollToBottom()
     {
         try
@@ -107,5 +116,6 @@
     public void Dispose()
     {
         MindState.OnSpoke -= HandleSpoke;
+        _dotnetRef?.Dispose();
     }
 }

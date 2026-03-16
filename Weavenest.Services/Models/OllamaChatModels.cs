@@ -17,6 +17,11 @@ public class OllamaChatRequest
     [JsonPropertyName("tools")]
     [JsonIgnore(Condition = JsonIgnoreCondition.WhenWritingNull)]
     public List<OllamaTool>? Tools { get; set; }
+
+    // Tells Ollama to extract <think> blocks into message.thinking (non-streaming, works alongside tool_calls)
+    [JsonPropertyName("think")]
+    [JsonIgnore(Condition = JsonIgnoreCondition.WhenWritingDefault)]
+    public bool Think { get; set; } = false;
 }
 
 public class OllamaChatMessage

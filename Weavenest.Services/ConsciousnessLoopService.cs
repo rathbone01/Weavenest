@@ -172,8 +172,7 @@ public class ConsciousnessLoopService : BackgroundService
             try
             {
                 response = await ollamaService.ChatWithToolsAsync(
-                    systemPrompt, messages, toolDefinitions, modelName, ct,
-                    onThinkToken: token => _mindState.PublishSubconsciousToken(token));
+                    systemPrompt, messages, toolDefinitions, modelName, ct);
             }
             catch (Exception ex)
             {
@@ -189,7 +188,8 @@ public class ConsciousnessLoopService : BackgroundService
             if (!string.IsNullOrWhiteSpace(response.Message.Thinking))
             {
                 thinking = response.Message.Thinking;
-                content = response.Message.Content;
+                // Strip orphaned </think> tags Ollama leaves in content when think:true is used
+                content = ThinkTagParser.StripThinkTags(response.Message.Content);
             }
             else
             {
@@ -203,6 +203,10 @@ public class ConsciousnessLoopService : BackgroundService
                 subconsciousContent = thinking;
             else if (thinking is not null)
                 subconsciousContent += "\n" + thinking;
+
+            // Publish thinking to UI immediately after this Ollama call (not waiting for full tick)
+            if (!string.IsNullOrWhiteSpace(thinking))
+                _mindState.PublishSubconsciousToken(thinking);
 
             // Check for tool calls
             if (response.Message.ToolCalls is null || response.Message.ToolCalls.Count == 0)

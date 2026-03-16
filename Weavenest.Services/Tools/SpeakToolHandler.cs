@@ -33,7 +33,8 @@ public class SpeakToolHandler : IToolHandler
         if (string.IsNullOrWhiteSpace(message))
             return "[speak failed: empty message]";
 
-        _mindState.RecordSpokenMessage(message);
+        // Fire OnSpoke immediately — message appears in chat right now, not waiting for end-of-tick
+        _mindState.PublishSpokenMessage(message);
         _shortTermMemory.AddEntry($"I said to the human: \"{message}\"", "spoke");
 
         return $"[Message delivered to the human: \"{message}\"]";

@@ -1,0 +1,96 @@
+.toollog-panel {
+    display: flex;
+    flex-direction: column;
+    height: 100%;
+    border-top: 1px solid rgba(255, 255, 255, 0.08);
+}
+
+.toollog-header {
+    padding: 8px 16px;
+    display: flex;
+    justify-content: space-between;
+    align-items: center;
+    flex-shrink: 0;
+}
+
+.toollog-count {
+    opacity: 0.4;
+    font-size: 0.65rem;
+}
+
+.toollog-entries {
+    flex: 1;
+    overflow-y: auto;
+    padding: 4px 8px;
+    display: flex;
+    flex-direction: column;
+    gap: 4px;
+}
+
+.toollog-empty {
+    padding: 12px;
+    opacity: 0.4;
+    text-align: center;
+}
+
+.toollog-entry {
+    padding: 6px 8px;
+    border-radius: 4px;
+    border-left: 2px solid;
+    font-size: 0.7rem;
+}
+
+.toollog-entry.success {
+    background-color: rgba(76, 175, 80, 0.05);
+    border-left-color: rgba(76, 175, 80, 0.4);
+}
+
+.toollog-entry.failure {
+    background-color: rgba(239, 83, 80, 0.05);
+    border-left-color: rgba(239, 83, 80, 0.5);
+}
+
+.toollog-entry-header {
+    display: flex;
+    align-items: center;
+    gap: 6px;
+    margin-bottom: 2px;
+}
+
+.toollog-icon {
+    font-size: 0.65rem;
+    opacity: 0.7;
+}
+
+.toollog-entry.success .toollog-icon { color: #4CAF50; }
+.toollog-entry.failure .toollog-icon { color: #EF5350; }
+
+.toollog-name {
+    font-family: 'Cascadia Code', 'Fira Code', monospace;
+    color: rgba(255, 255, 255, 0.85);
+    font-weight: 600;
+}
+
+.toollog-time {
+    margin-left: auto;
+    opacity: 0.4;
+    font-size: 0.62rem;
+}
+
+.toollog-args {
+    font-family: 'Cascadia Code', 'Fira Code', monospace;
+    color: rgba(180, 220, 255, 0.6);
+    font-size: 0.65rem;
+    white-space: pre-wrap;
+    word-break: break-all;
+    margin-bottom: 2px;
+    opacity: 0.8;
+}
+
+.toollog-result {
+    font-family: 'Cascadia Code', 'Fira Code', monospace;
+    color: rgba(200, 200, 200, 0.5);
+    font-size: 0.62rem;
+    white-space: pre-wrap;
+    word-break: break-all;
+}

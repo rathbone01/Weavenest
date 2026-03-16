@@ -11,5 +11,17 @@ window.chatInterop = {
                 hljs.highlightElement(block);
             });
         }
+    },
+    registerEnterSend: function (container, dotnetRef) {
+        var textarea = container.querySelector('textarea');
+        if (!textarea) return;
+        textarea.addEventListener('keydown', function (e) {
+            if (e.key === 'Enter' && !e.shiftKey) {
+                e.preventDefault();
+                // Pass the raw textarea value directly — Blazor's bind:onchange hasn't fired yet
+                dotnetRef.invokeMethodAsync('SendMessageFromJs', textarea.value);
+                textarea.value = '';
+            }
+        });
     }
 };

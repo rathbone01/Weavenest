@@ -96,14 +96,14 @@ public class OllamaService : IOllamaService
         };
         allMessages.AddRange(messages);
 
-        // Stream when we have a thinking callback, non-stream otherwise
-        var useStreaming = onThinkToken is not null;
-
+        // Always non-streaming so Ollama properly parses tool_calls from the complete response.
+        // think:true tells Ollama to extract <think> blocks into message.thinking even in non-streaming mode.
         var chatRequest = new OllamaChatRequest
         {
             Model = modelName,
             Messages = allMessages,
-            Stream = useStreaming,
+            Stream = false,
+            Think = true,
             Tools = tools
         };
 
@@ -112,15 +112,13 @@ public class OllamaService : IOllamaService
 
         var url = $"{_options.BaseUrl.TrimEnd('/')}/api/chat";
 
-        _logger.LogInformation("ChatWithTools — model: {Model}, messages: {Count}, tools: {ToolCount}, streaming: {Streaming}",
-            modelName, allMessages.Count, tools?.Count ?? 0, useStreaming);
+        _logger.LogInformation("ChatWithTools — model: {Model}, messages: {Count}, tools: {ToolCount}",
+            modelName, allMessages.Count, tools?.Count ?? 0);
 
         HttpResponseMessage response;
         try
         {
-            var request = new HttpRequestMessage(HttpMethod.Post, url) { Content = content };
-            response = await client.SendAsync(request,
-                useStreaming ? HttpCompletionOption.ResponseHeadersRead : HttpCompletionOption.ResponseContentRead, ct);
+            response = await client.PostAsync(url, content, ct);
         }
         catch (HttpRequestException ex)
         {
@@ -136,75 +134,9 @@ public class OllamaService : IOllamaService
             throw new HttpRequestException($"Ollama API error {statusCode}: {errorBody}");
         }
 
-        if (!useStreaming)
-        {
-            var responseJson = await response.Content.ReadAsStringAsync(ct);
-            var result = JsonSerializer.Deserialize<OllamaChatResponse>(responseJson);
-            return result ?? throw new InvalidOperationException("Ollama returned an empty or unparseable response");
-        }
-
-        // Streaming: read NDJSON lines, fire thinking callbacks, accumulate full response
-        return await ReadStreamingResponseAsync(response, onThinkToken!, ct);
-    }
-
-    private async Task<OllamaChatResponse> ReadStreamingResponseAsync(
-        HttpResponseMessage response, Action<string> onThinkToken, CancellationToken ct)
-    {
-        using var stream = await response.Content.ReadAsStreamAsync(ct);
-        using var reader = new System.IO.StreamReader(stream);
-
-        var thinkingBuilder = new StringBuilder();
-        var contentBuilder = new StringBuilder();
-        OllamaChatResponse? finalResponse = null;
-
-        string? line;
-        while ((line = await reader.ReadLineAsync(ct)) is not null && !ct.IsCancellationRequested)
-        {
-            if (string.IsNullOrWhiteSpace(line))
-                continue;
-
-            OllamaChatResponse? chunk;
-            try
-            {
-                chunk = JsonSerializer.Deserialize<OllamaChatResponse>(line);
-            }
-            catch (JsonException ex)
-            {
-                _logger.LogWarning(ex, "Failed to parse streaming chunk");
-                continue;
-            }
-
-            if (chunk is null) continue;
-
-            // Accumulate thinking tokens and fire callback
-            if (!string.IsNullOrEmpty(chunk.Message.Thinking))
-            {
-                thinkingBuilder.Append(chunk.Message.Thinking);
-                onThinkToken(chunk.Message.Thinking);
-            }
-
-            // Accumulate content tokens
-            if (!string.IsNullOrEmpty(chunk.Message.Content))
-            {
-                contentBuilder.Append(chunk.Message.Content);
-            }
-
-            if (chunk.Done)
-            {
-                // Final chunk — may contain tool_calls
-                finalResponse = chunk;
-                break;
-            }
-        }
-
-        if (finalResponse is null)
-            throw new InvalidOperationException("Ollama stream ended without a final response");
-
-        // Build the complete response with accumulated content
-        finalResponse.Message.Thinking = thinkingBuilder.Length > 0 ? thinkingBuilder.ToString() : null;
-        finalResponse.Message.Content = contentBuilder.ToString();
-
-        return finalResponse;
+        var responseJson = await response.Content.ReadAsStringAsync(ct);
+        var result = JsonSerializer.Deserialize<OllamaChatResponse>(responseJson);
+        return result ?? throw new InvalidOperationException("Ollama returned an empty or unparseable response");
     }
 
     public async Task<IEnumerable<string>> GetModelsAsync(CancellationToken cancellationToken = default)
