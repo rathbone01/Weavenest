@@ -1,20 +1,29 @@
 @using Weavenest.DataAccess.Models
 @using Weavenest.DataAccess.Repositories
 @using Weavenest.Services
+@using Weavenest.Services.Interfaces
 @inject IChatRepository ChatRepo
 @inject ChatStateNotifier StateNotifier
 @inject NavigationManager Navigation
 @inject IDialogService DialogService
+@inject IUserIdentityService UserIdentity
 @implements IDisposable
 
 <div style="display: flex; flex-direction: column; flex: 1; min-height: 0;">
-    <div style="flex: 0 0 auto; padding: 8px;">
+    <div style="flex: 0 0 auto; padding: 8px; display: flex; flex-direction: column; gap: 4px;">
         <MudButton Variant="Variant.Outlined"
                    Color="Color.Primary"
                    FullWidth="true"
                    StartIcon="@Icons.Material.Filled.Add"
                    OnClick="StartNewChat">
             New Chat
+        </MudButton>
+        <MudButton Variant="Variant.Outlined"
+                   Color="Color.Secondary"
+                   FullWidth="true"
+                   StartIcon="@Icons.Material.Filled.Folder"
+                   OnClick="@(() => Navigation.NavigateTo("/folders"))">
+            Folders
         </MudButton>
     </div>
 
@@ -72,7 +81,13 @@
 
     private async Task RefreshSessions()
     {
-        _sessions = await ChatRepo.GetSessionsAsync();
+        var userId = await UserIdentity.GetCurrentUserIdAsync();
+        if (userId is null)
+        {
+            _sessions = [];
+            return;
+        }
+        _sessions = await ChatRepo.GetSessionsAsync(userId.Value);
     }
 
     private void StartNewChat()

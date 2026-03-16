@@ -1,0 +1,90 @@
+@page "/register"
+@layout AuthLayout
+@attribute [AllowAnonymous]
+@using Weavenest.Services.Interfaces
+@inject IAuthService AuthService
+@inject NavigationManager Navigation
+
+<PageTitle>Register - Weavenest</PageTitle>
+
+<MudCard Style="width: 400px;">
+    <MudCardContent>
+        <MudText Typo="Typo.h4" Class="mb-4" Align="Align.Center">Create Account</MudText>
+        <MudTextField Label="Username"
+                      @bind-Value="_username"
+                      Immediate="true"
+                      Variant="Variant.Outlined"
+                      Class="mb-3"
+                      OnKeyDown="HandleKeyDown" />
+        <MudTextField Label="Password"
+                      @bind-Value="_password"
+                      Immediate="true"
+                      InputType="InputType.Password"
+                      Variant="Variant.Outlined"
+                      OnKeyDown="HandleKeyDown" />
+        @if (!string.IsNullOrEmpty(_errorMessage))
+        {
+            <MudAlert Severity="Severity.Error" Dense="true" Class="mt-4">@_errorMessage</MudAlert>
+        }
+        @if (!string.IsNullOrEmpty(_successMessage))
+        {
+            <MudAlert Severity="Severity.Success" Dense="true" Class="mt-4">@_successMessage</MudAlert>
+        }
+    </MudCardContent>
+    <MudCardActions Class="d-flex flex-column pa-4 pt-0">
+        <MudButton Variant="Variant.Filled"
+                   Color="Color.Primary"
+                   FullWidth="true"
+                   OnClick="HandleRegister"
+                   Disabled="_isLoading">
+            @if (_isLoading)
+            {
+                <MudProgressCircular Size="Size.Small" Indeterminate="true" Class="mr-2" />
+            }
+            Register
+        </MudButton>
+        <MudLink Href="/login" Class="mt-3 align-self-center" Typo="Typo.body2">
+            Already have an account? Log in
+        </MudLink>
+    </MudCardActions>
+</MudCard>
+
+@code {
+    private string _username = string.Empty;
+    private string _password = string.Empty;
+    private string _errorMessage = string.Empty;
+    private string _successMessage = string.Empty;
+    private bool _isLoading;
+
+    private async Task HandleKeyDown(KeyboardEventArgs e)
+    {
+        if (e.Key == "Enter")
+            await HandleRegister();
+    }
+
+    private async Task HandleRegister()
+    {
+        _isLoading = true;
+        _errorMessage = string.Empty;
+        _successMessage = string.Empty;
+
+        try
+        {
+            var (success, error) = await AuthService.RegisterAsync(_username, _password);
+            if (!success)
+            {
+                _errorMessage = error ?? "Registration failed.";
+                return;
+            }
+
+            _successMessage = "Account created! Redirecting to login...";
+            StateHasChanged();
+            await Task.Delay(1000);
+            Navigation.NavigateTo("/login");
+        }
+        finally
+        {
+            _isLoading = false;
+        }
+    }
+}

@@ -47,6 +47,7 @@ public partial class Chat : IDisposable
     private string _userInput = "";
     private bool _isStreaming;
     private Guid? _streamingSessionId;
+    private ChatSession? _streamingSession;
     private ChatMessage _streamingMessage = new()
     {
         Role = ChatRole.Assistant,
@@ -68,6 +69,15 @@ public partial class Chat : IDisposable
     {
         if (SessionId.HasValue)
         {
+            // Skip reloading if we're navigating back to the session that is currently
+            // streaming — a DB snapshot would overwrite in-flight messages.
+            // Restore the in-memory session reference so the UI shows it.
+            if (_isStreaming && SessionId.Value == _streamingSessionId)
+            {
+                _currentSession = _streamingSession;
+                return;
+            }
+
             _currentSession = await ChatRepo.GetSessionByIdAsync(SessionId.Value);
             if (_currentSession is not null)
             {
@@ -153,10 +163,14 @@ public partial class Chat : IDisposable
 
         if (_currentSession is null)
         {
+            var userId = await UserIdentity.GetCurrentUserIdAsync();
+            if (userId is null)
+                return;
+
             var title = userText.Length > 50
                 ? userText[..50] + "..."
                 : userText;
-            _currentSession = await ChatRepo.CreateSessionAsync(title, _selectedModel);
+            _currentSession = await ChatRepo.CreateSessionAsync(userId.Value, title, _selectedModel);
             await StateNotifier.NotifySessionsChanged();
             Navigation.NavigateTo($"/chat/{_currentSession.Id}", replace: true);
         }
@@ -165,10 +179,17 @@ public partial class Chat : IDisposable
         var activeSession = _currentSession;
         var activeModel = _selectedModel;
 
-        await ChatRepo.AddMessageAsync(activeSession.Id, ChatRole.User, userText);
+        // Snapshot history BEFORE adding the new user message — SendAsync will append it
+        var history = activeSession.Messages
+            .Where(m => m.Role != ChatRole.Assistant || m.Content.Length > 0)
+            .ToList();
+
+        var userMsg = await ChatRepo.AddMessageAsync(activeSession.Id, ChatRole.User, userText);
+        activeSession.Messages.Add(userMsg);
 
         _isStreaming = true;
         _streamingSessionId = activeSession.Id;
+        _streamingSession = activeSession;
         _inThinkBlock = false;
         _tokenBuffer = "";
         _streamingMessage = new ChatMessage
@@ -182,9 +203,6 @@ public partial class Chat : IDisposable
 
         try
         {
-            var history = activeSession.Messages
-                .Where(m => m.Role != ChatRole.Assistant || m.Content.Length > 0)
-                .ToList();
 
             await foreach (var token in OllamaService.ChatStreamAsync(
                 history, userText, activeModel,
@@ -209,33 +227,80 @@ public partial class Chat : IDisposable
                 }
             }
 
-            await ChatRepo.AddMessageAsync(
+            // Flush any remaining characters held by the lookahead buffer
+            if (_tokenBuffer.Length > 0)
+            {
+                if (_inThinkBlock)
+                    _streamingMessage.Thinking = (_streamingMessage.Thinking ?? "") + _tokenBuffer;
+                else
+                    _streamingMessage.Content += _tokenBuffer;
+                _tokenBuffer = "";
+            }
+
+            // Fallback: if OllamaSharp routed the entire response through OnThink
+            // (e.g. Gemma3 puts everything in the thinking field), re-parse the
+            // combined text so RouteStreamingToken can separate <think> from content.
+            if (string.IsNullOrWhiteSpace(_streamingMessage.Content)
+                && !string.IsNullOrEmpty(_streamingMessage.Thinking))
+            {
+                var rawThinking = _streamingMessage.Thinking;
+                _streamingMessage.Content = "";
+                _streamingMessage.Thinking = null;
+                _inThinkBlock = false;
+                _tokenBuffer = "";
+                RouteStreamingToken(rawThinking);
+
+                // Flush the buffer after the final parse
+                if (_tokenBuffer.Length > 0)
+                {
+                    if (_inThinkBlock)
+                        _streamingMessage.Thinking = (_streamingMessage.Thinking ?? "") + _tokenBuffer;
+                    else
+                        _streamingMessage.Content += _tokenBuffer;
+                    _tokenBuffer = "";
+                }
+
+                // If still no content after re-parse (model produced no <think> tags,
+                // so everything was genuine thinking with no answer), use it as content
+                if (string.IsNullOrWhiteSpace(_streamingMessage.Content))
+                {
+                    _streamingMessage.Content = rawThinking;
+                    _streamingMessage.Thinking = null;
+                }
+            }
+
+            var assistantMsg = await ChatRepo.AddMessageAsync(
                 activeSession.Id,
                 ChatRole.Assistant,
                 _streamingMessage.Content,
                 modelName: activeModel,
                 thinking: _streamingMessage.Thinking);
+            activeSession.Messages.Add(assistantMsg);
         }
         catch (OperationCanceledException)
         {
             if (!string.IsNullOrEmpty(_streamingMessage.Content))
             {
-                await ChatRepo.AddMessageAsync(
+                var assistantMsg = await ChatRepo.AddMessageAsync(
                     activeSession.Id,
                     ChatRole.Assistant,
                     _streamingMessage.Content,
                     modelName: activeModel,
                     thinking: _streamingMessage.Thinking);
+                activeSession.Messages.Add(assistantMsg);
             }
         }
         catch (Exception ex)
         {
             Logger.LogError(ex, "Chat stream error — model: {Model}, session: {SessionId}", activeModel, activeSession.Id);
+            _streamingMessage.Content = $"⚠ Error: {ex.Message}";
+            StateHasChanged();
         }
         finally
         {
             _isStreaming = false;
             _streamingSessionId = null;
+            _streamingSession = null;
             _streamingCts?.Dispose();
             _streamingCts = null;
             UpdateTokenEstimate();

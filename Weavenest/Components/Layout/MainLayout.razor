@@ -1,5 +1,6 @@
 @inherits LayoutComponentBase
 @inject NavigationManager navigationManager
+@inject Weavenest.Services.CustomAuthenticationStateProvider AuthStateProvider
 @using Weavenest.Configuration
 
 <MudThemeProvider IsDarkMode="true" Theme="WeavenestTheme.Theme" />
@@ -12,6 +13,14 @@
         <MudIconButton Icon="@Icons.Material.Filled.Menu" Color="Color.Inherit" Edge="Edge.Start" OnClick="@((e) => DrawerToggle())" />
         <MudText Typo="Typo.h6" Class="ml-3">Weavenest</MudText>
         <MudSpacer />
+        <AuthorizeView>
+            <Authorized>
+                <MudText Typo="Typo.body2" Class="mr-2">@context.User.Identity?.Name</MudText>
+                <MudIconButton Icon="@Icons.Material.Filled.Logout"
+                               Color="Color.Inherit"
+                               OnClick="HandleLogout" />
+            </Authorized>
+        </AuthorizeView>
     </MudAppBar>
     <MudDrawer @bind-Open="_drawerOpen" Elevation="2">
         <MudDrawerHeader>
@@ -32,5 +41,11 @@
     void DrawerToggle()
     {
         _drawerOpen = !_drawerOpen;
+    }
+
+    private async Task HandleLogout()
+    {
+        await AuthStateProvider.Logout();
+        navigationManager.NavigateTo("/login");
     }
 }

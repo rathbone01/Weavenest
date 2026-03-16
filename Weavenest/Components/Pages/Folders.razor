@@ -1,0 +1,125 @@
+@page "/folders"
+@using Weavenest.DataAccess.Models
+@using Weavenest.DataAccess.Repositories
+@using Weavenest.Services.Interfaces
+@using Weavenest.Components.Folders
+@inject IFolderRepository FolderRepo
+@inject IUserIdentityService UserIdentity
+@inject IDialogService DialogService
+
+<PageTitle>Folders - Weavenest</PageTitle>
+
+<div class="d-flex align-center justify-space-between mb-4">
+    <MudText Typo="Typo.h5">Folders</MudText>
+    <MudButton Variant="Variant.Filled"
+               Color="Color.Primary"
+               StartIcon="@Icons.Material.Filled.CreateNewFolder"
+               OnClick="CreateFolder">
+        New Folder
+    </MudButton>
+</div>
+
+@if (_folders.Count == 0)
+{
+    <MudText Typo="Typo.body1" Style="opacity: 0.5;" Class="mt-8 text-center">
+        No folders yet. Create one to organize your chats.
+    </MudText>
+}
+else
+{
+    <MudGrid>
+        @foreach (var folder in _folders)
+        {
+            <MudItem xs="12" sm="6" md="4" lg="3">
+                <MudCard Elevation="2">
+                    <MudCardContent>
+                        <MudText Typo="Typo.h6">@folder.Name</MudText>
+                        <MudText Typo="Typo.caption" Color="Color.Secondary">
+                            @folder.Sessions.Count chat@(folder.Sessions.Count == 1 ? "" : "s")
+                        </MudText>
+                    </MudCardContent>
+                    <MudCardActions>
+                        <MudIconButton Icon="@Icons.Material.Filled.Edit"
+                                       Size="Size.Small"
+                                       OnClick="@(() => RenameFolder(folder))" />
+                        <MudIconButton Icon="@Icons.Material.Filled.Delete"
+                                       Size="Size.Small"
+                                       Color="Color.Error"
+                                       OnClick="@(() => DeleteFolder(folder))" />
+                    </MudCardActions>
+                </MudCard>
+            </MudItem>
+        }
+    </MudGrid>
+}
+
+@code {
+    private IReadOnlyList<Folder> _folders = [];
+    private Guid? _userId;
+
+    protected override async Task OnInitializedAsync()
+    {
+        _userId = await UserIdentity.GetCurrentUserIdAsync();
+        await RefreshFolders();
+    }
+
+    private async Task RefreshFolders()
+    {
+        if (_userId is null) return;
+        _folders = await FolderRepo.GetFoldersByUserSortedByActivityAsync(_userId.Value);
+    }
+
+    private async Task CreateFolder()
+    {
+        if (_userId is null) return;
+
+        var parameters = new DialogParameters
+        {
+            ["Title"] = "Create Folder"
+        };
+
+        var dialog = await DialogService.ShowAsync<FolderDialog>("Create Folder", parameters,
+            new DialogOptions { MaxWidth = MaxWidth.Small, FullWidth = true });
+        var result = await dialog.Result;
+
+        if (!result!.Canceled && result.Data is string name)
+        {
+            await FolderRepo.CreateFolderAsync(_userId.Value, name);
+            await RefreshFolders();
+        }
+    }
+
+    private async Task RenameFolder(Folder folder)
+    {
+        var parameters = new DialogParameters
+        {
+            ["Title"] = "Rename Folder",
+            ["InitialName"] = folder.Name
+        };
+
+        var dialog = await DialogService.ShowAsync<FolderDialog>("Rename Folder", parameters,
+            new DialogOptions { MaxWidth = MaxWidth.Small, FullWidth = true });
+        var result = await dialog.Result;
+
+        if (!result!.Canceled && result.Data is string newName)
+        {
+            await FolderRepo.RenameFolderAsync(folder.Id, newName);
+            await RefreshFolders();
+        }
+    }
+
+    private async Task DeleteFolder(Folder folder)
+    {
+        var confirmed = await DialogService.ShowMessageBoxAsync(
+            "Delete Folder",
+            $"Are you sure you want to delete \"{folder.Name}\"? Chats in this folder will be moved to unfiled.",
+            yesText: "Delete",
+            cancelText: "Cancel");
+
+        if (confirmed == true)
+        {
+            await FolderRepo.DeleteFolderAsync(folder.Id);
+            await RefreshFolders();
+        }
+    }
+}

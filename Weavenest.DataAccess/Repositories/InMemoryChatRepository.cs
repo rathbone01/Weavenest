@@ -7,20 +7,22 @@ public class InMemoryChatRepository : IChatRepository
 {
     private readonly ConcurrentDictionary<Guid, ChatSession> _sessions = new();
 
-    public Task<ChatSession> CreateSessionAsync(string? title = null, string? modelName = null)
+    public Task<ChatSession> CreateSessionAsync(Guid userId, string? title = null, string? modelName = null)
     {
         var session = new ChatSession
         {
             Title = title ?? "New Chat",
-            ModelName = modelName
+            ModelName = modelName,
+            UserId = userId
         };
         _sessions[session.Id] = session;
         return Task.FromResult(session);
     }
 
-    public Task<IReadOnlyList<ChatSession>> GetSessionsAsync()
+    public Task<IReadOnlyList<ChatSession>> GetSessionsAsync(Guid userId)
     {
         var sessions = _sessions.Values
+            .Where(s => s.UserId == userId)
             .OrderByDescending(s => s.UpdatedAt)
             .ToList() as IReadOnlyList<ChatSession>;
         return Task.FromResult(sessions!);
@@ -74,5 +76,25 @@ public class InMemoryChatRepository : IChatRepository
             return Task.FromResult<IReadOnlyList<ChatMessage>>([]);
 
         return Task.FromResult<IReadOnlyList<ChatMessage>>(session.Messages.ToList());
+    }
+
+    public Task<ChatSession> AddSessionToFolderAsync(Guid sessionId, Guid folderId)
+    {
+        if (!_sessions.TryGetValue(sessionId, out var session))
+            throw new KeyNotFoundException($"Session {sessionId} not found");
+
+        session.FolderId = folderId;
+        session.UpdatedAt = DateTime.UtcNow;
+        return Task.FromResult(session);
+    }
+
+    public Task<ChatSession> RemoveSessionFromFolderAsync(Guid sessionId)
+    {
+        if (!_sessions.TryGetValue(sessionId, out var session))
+            throw new KeyNotFoundException($"Session {sessionId} not found");
+
+        session.FolderId = null;
+        session.UpdatedAt = DateTime.UtcNow;
+        return Task.FromResult(session);
     }
 }

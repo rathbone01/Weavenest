@@ -1,7 +1,9 @@
+using System.Collections.Concurrent;
 using System.Runtime.CompilerServices;
 using Microsoft.Extensions.Logging;
 using Microsoft.Extensions.Options;
 using OllamaSharp;
+using OllamaSharp.Models;
 using Weavenest.DataAccess.Models;
 using Weavenest.Services.Interfaces;
 using Weavenest.Services.Models.Options;
@@ -13,6 +15,7 @@ public class OllamaService : IOllamaService
     private readonly OllamaApiClient _client;
     private readonly ILogger<OllamaService> _logger;
     private readonly OllamaOptions _options;
+    private readonly ConcurrentDictionary<string, bool> _thinkingCapabilityCache = new(StringComparer.OrdinalIgnoreCase);
 
     public OllamaService(IOptions<OllamaOptions> config, ILogger<OllamaService> logger)
     {
@@ -38,8 +41,13 @@ public class OllamaService : IOllamaService
             : new Chat(_client);
 
         chat.Model = modelName;
-        chat.Think = true;
-        chat.OnThink += (_, token) => onThinkToken?.Invoke(token ?? "");
+
+        var supportsThinking = await SupportsThinkingAsync(modelName, cancellationToken);
+        if (supportsThinking)
+        {
+            chat.Think = true;
+            chat.OnThink += (_, token) => onThinkToken?.Invoke(token ?? "");
+        }
 
         foreach (var msg in history)
         {
@@ -112,6 +120,27 @@ public class OllamaService : IOllamaService
     {
         // ~4 characters per token is a standard heuristic for English text
         return (int)Math.Ceiling(text.Length / 4.0);
+    }
+
+    private async Task<bool> SupportsThinkingAsync(string modelName, CancellationToken cancellationToken = default)
+    {
+        if (_thinkingCapabilityCache.TryGetValue(modelName, out var cached))
+            return cached;
+
+        try
+        {
+            var response = await _client.ShowModelAsync(new ShowModelRequest { Model = modelName }, cancellationToken);
+            var supports = response.Capabilities?.Contains("thinking", StringComparer.OrdinalIgnoreCase) ?? false;
+            _thinkingCapabilityCache[modelName] = supports;
+            _logger.LogInformation("Model {Model} thinking support: {Supports}", modelName, supports);
+            return supports;
+        }
+        catch (Exception ex)
+        {
+            _logger.LogWarning(ex, "Failed to check capabilities for model {Model}, defaulting to no thinking", modelName);
+            _thinkingCapabilityCache[modelName] = false;
+            return false;
+        }
     }
 
     private static OllamaSharp.Models.Chat.ChatRole MapRole(DataAccess.Models.ChatRole role) => role switch

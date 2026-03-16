@@ -1,7 +1,11 @@
+using Microsoft.EntityFrameworkCore;
 using MudBlazor.Services;
 using Serilog;
 using Weavenest.Components;
 using Weavenest.Configuration;
+using Weavenest.DataAccess.Data;
+
+// dotnet ef migrations add {{Migration name}} --project ../Weavenest.DataAccess --startup-project ../Weavenest
 
 namespace Weavenest
 {
@@ -26,9 +30,18 @@ namespace Weavenest
                 .AddInteractiveServerComponents();
 
             builder.Services.AddMudServices();
+            builder.Services.AddAuthorization();
+            builder.Services.AddCascadingAuthenticationState();
             builder.Services.AddWeavenestServices(builder.Configuration);
 
             var app = builder.Build();
+
+            if (app.Environment.IsDevelopment())
+            {
+                using var scope = app.Services.CreateScope();
+                var db = scope.ServiceProvider.GetService<WeavenestDbContext>();
+                db?.Database.Migrate();
+            }
 
             // Configure the HTTP request pipeline.
             if (!app.Environment.IsDevelopment())

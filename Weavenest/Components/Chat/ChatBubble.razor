@@ -38,7 +38,7 @@
     <MudPaper Class="@($"chat-bubble-paper {PaperClass}")" Elevation="1">
         @if (Message.Role == ChatRole.User)
         {
-            <div class="message-content-plain">@Message.Content</div>
+            <div class="message-content-plain">&nbsp; @Message.Content</div>
         }
         else
         {

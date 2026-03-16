@@ -1,4 +1,3 @@
-@page "/"
 @page "/chat/{SessionId:guid?}"
 @using Weavenest.DataAccess.Models
 @using Weavenest.DataAccess.Repositories
@@ -12,6 +11,7 @@
 @inject NavigationManager Navigation
 @inject IJSRuntime JSRuntime
 @inject ILogger<Chat> Logger
+@inject IUserIdentityService UserIdentity
 @implements IDisposable
 
 <PageTitle>Chat - Weavenest</PageTitle>
@@ -42,7 +42,7 @@
         {
             @foreach (var message in _currentSession.Messages)
             {
-                <ChatBubble Message="message" />
+                <ChatBubble Message="message"/>
             }
         }
         @if (_isStreaming && _currentSession?.Id == _streamingSessionId)
