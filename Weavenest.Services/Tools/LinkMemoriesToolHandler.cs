@@ -8,7 +8,7 @@ public class LinkMemoriesToolHandler : IToolHandler
     private readonly LongTermMemoryService _memoryService;
 
     public string Name => "link_memories";
-    public string Description => "Create an associative link between two memories by their IDs. This helps form conceptual connections between related knowledge.";
+    public string Description => "Create an associative link between two memories by their IDs. IDs are GUIDs — use only IDs returned from a previous recall or store_memory result. Never invent or guess IDs.";
 
     public OllamaToolParameters ParameterSchema => new()
     {

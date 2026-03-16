@@ -8,7 +8,7 @@ public class RecallToolHandler : IToolHandler
     private readonly LongTermMemoryService _memoryService;
 
     public string Name => "recall";
-    public string Description => "Search your long-term memory by tags or keyword. Returns relevant memories sorted by relevance and recency.";
+    public string Description => "Search your long-term memory by tags or keyword. Returns relevant memories sorted by relevance and recency. Each result includes an [id:GUID] you can use with link_memories.";
 
     public OllamaToolParameters ParameterSchema => new()
     {

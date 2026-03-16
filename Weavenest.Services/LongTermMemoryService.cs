@@ -219,7 +219,7 @@ public class LongTermMemoryService
             var age = DateTime.UtcNow - m.CreatedAt;
             var ageStr = age.TotalDays > 1 ? $"{age.TotalDays:F0} days ago" :
                          age.TotalHours > 1 ? $"{age.TotalHours:F0} hours ago" : "recently";
-            return $"- [{m.Category}] (confidence: {m.Confidence:F1}, {ageStr}) {m.Content} [tags: {string.Join(", ", tags)}]";
+            return $"- [id:{m.Id}] [{m.Category}] (confidence: {m.Confidence:F1}, {ageStr}) {m.Content} [tags: {string.Join(", ", tags)}]";
         });
 
         return string.Join("\n", lines);
