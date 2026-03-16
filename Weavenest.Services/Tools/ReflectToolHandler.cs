@@ -71,15 +71,15 @@ public class ReflectToolHandler : IToolHandler
             reflection.AppendLine();
         }
 
-        if (recentThoughts.Count > 0)
+        var topicThoughts = recentThoughts.Where(e =>
+            e.Content.Contains(topic, StringComparison.OrdinalIgnoreCase) ||
+            e.TopicTags.Any(tag => tag.Contains(topic, StringComparison.OrdinalIgnoreCase))).ToList();
+
+        if (topicThoughts.Count > 0)
         {
             reflection.AppendLine("Recent thoughts on this topic:");
-            foreach (var thought in recentThoughts.Where(e =>
-                e.Content.Contains(topic, StringComparison.OrdinalIgnoreCase) ||
-                e.TopicTags.Any(tag => tag.Contains(topic, StringComparison.OrdinalIgnoreCase))))
-            {
+            foreach (var thought in topicThoughts)
                 reflection.AppendLine($"  - {thought.Content}");
-            }
         }
 
         return reflection.ToString();
