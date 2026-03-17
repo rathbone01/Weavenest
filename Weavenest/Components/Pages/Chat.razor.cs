@@ -52,6 +52,8 @@ public partial class Chat : IDisposable
     private string? _ollamaError;
     private bool _webSearchEnabled = true;
     private bool _showThinking = true;
+    private bool _modelSupportsTools = true;
+    private bool _modelSupportsThinking = true;
 
     // Agentic mode state
     private List<AgenticDisplayMessage> _displayMessages = [];
@@ -141,6 +143,10 @@ public partial class Chat : IDisposable
         {
             var info = await OllamaService.GetModelContextInfoAsync(_selectedModel);
             _contextLength = info.ContextLength;
+
+            var caps = await OllamaService.GetModelCapabilitiesAsync(_selectedModel);
+            _modelSupportsTools = caps.SupportsTools;
+            _modelSupportsThinking = caps.SupportsThinking;
         }
     }
 

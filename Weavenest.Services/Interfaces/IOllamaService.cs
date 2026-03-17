@@ -16,6 +16,8 @@ public interface IOllamaService
 
     Task<ModelContextInfo> GetModelContextInfoAsync(string modelName, CancellationToken cancellationToken = default);
 
+    Task<ModelCapabilities> GetModelCapabilitiesAsync(string modelName, CancellationToken cancellationToken = default);
+
     int EstimateTokenCount(string text);
 }
 
@@ -23,3 +25,8 @@ public record ModelContextInfo(
     string ModelName,
     int ContextLength,
     bool IsRunning);
+
+public record ModelCapabilities(
+    bool SupportsThinking,
+    bool SupportsTools,
+    bool IsEmbeddingOnly);

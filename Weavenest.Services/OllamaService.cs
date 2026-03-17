@@ -15,7 +15,7 @@ public class OllamaService : IOllamaService
     private readonly OllamaApiClient _client;
     private readonly ILogger<OllamaService> _logger;
     private readonly OllamaOptions _options;
-    private readonly ConcurrentDictionary<string, bool> _thinkingCapabilityCache = new(StringComparer.OrdinalIgnoreCase);
+    private readonly ConcurrentDictionary<string, ModelCapabilities> _capabilitiesCache = new(StringComparer.OrdinalIgnoreCase);
 
     public OllamaService(IOptions<OllamaOptions> config, ILogger<OllamaService> logger)
     {
@@ -42,7 +42,8 @@ public class OllamaService : IOllamaService
 
         chat.Model = modelName;
 
-        var supportsThinking = await SupportsThinkingAsync(modelName, cancellationToken);
+        var capabilities = await GetModelCapabilitiesAsync(modelName, cancellationToken);
+        var supportsThinking = capabilities.SupportsThinking;
         if (supportsThinking)
         {
             chat.Think = true;
@@ -78,7 +79,16 @@ public class OllamaService : IOllamaService
         try
         {
             var models = await _client.ListLocalModelsAsync(cancellationToken);
-            return models.Select(m => m.Name);
+            var names = models.Select(m => m.Name).ToList();
+
+            // Check capabilities in parallel so the cache is warm and embedding models are excluded
+            var capabilityTasks = names.Select(name => GetModelCapabilitiesAsync(name, cancellationToken));
+            var capabilities = await Task.WhenAll(capabilityTasks);
+
+            return names
+                .Zip(capabilities, (name, caps) => (name, caps))
+                .Where(x => !x.caps.IsEmbeddingOnly)
+                .Select(x => x.name);
         }
         catch (Exception ex)
         {
@@ -121,24 +131,31 @@ public class OllamaService : IOllamaService
         return (int)Math.Ceiling(text.Length / 4.0);
     }
 
-    private async Task<bool> SupportsThinkingAsync(string modelName, CancellationToken cancellationToken = default)
+    public async Task<ModelCapabilities> GetModelCapabilitiesAsync(string modelName, CancellationToken cancellationToken = default)
     {
-        if (_thinkingCapabilityCache.TryGetValue(modelName, out var cached))
+        if (_capabilitiesCache.TryGetValue(modelName, out var cached))
             return cached;
 
         try
         {
             var response = await _client.ShowModelAsync(new ShowModelRequest { Model = modelName }, cancellationToken);
-            var supports = response.Capabilities?.Contains("thinking", StringComparer.OrdinalIgnoreCase) ?? false;
-            _thinkingCapabilityCache[modelName] = supports;
-            _logger.LogInformation("Model {Model} thinking support: {Supports}", modelName, supports);
-            return supports;
+            var caps = response.Capabilities ?? [];
+            var supportsThinking = caps.Contains("thinking", StringComparer.OrdinalIgnoreCase);
+            var supportsTools = caps.Contains("tools", StringComparer.OrdinalIgnoreCase);
+            var isEmbeddingOnly = caps.Contains("embedding", StringComparer.OrdinalIgnoreCase)
+                                  && !caps.Contains("completion", StringComparer.OrdinalIgnoreCase);
+            var result = new ModelCapabilities(supportsThinking, supportsTools, isEmbeddingOnly);
+            _capabilitiesCache[modelName] = result;
+            _logger.LogInformation("Model {Model} capabilities — thinking: {Thinking}, tools: {Tools}, embeddingOnly: {EmbeddingOnly}",
+                modelName, supportsThinking, supportsTools, isEmbeddingOnly);
+            return result;
         }
         catch (Exception ex)
         {
-            _logger.LogWarning(ex, "Failed to check capabilities for model {Model}, defaulting to no thinking", modelName);
-            _thinkingCapabilityCache[modelName] = false;
-            return false;
+            _logger.LogWarning(ex, "Failed to check capabilities for model {Model}, defaulting to none", modelName);
+            var fallback = new ModelCapabilities(SupportsThinking: false, SupportsTools: false, IsEmbeddingOnly: false);
+            _capabilitiesCache[modelName] = fallback;
+            return fallback;
         }
     }
 

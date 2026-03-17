@@ -41,13 +41,15 @@
         <MudMenu Icon="@Icons.Material.Filled.Settings" AnchorOrigin="Origin.BottomRight"
                  TransformOrigin="Origin.TopRight" Dense="true">
             <MudMenuItem OnClick="ToggleWebSearch"
-                         Icon="@(_webSearchEnabled ? Icons.Material.Filled.CheckBox : Icons.Material.Filled.CheckBoxOutlineBlank)"
-                         IconColor="@(_webSearchEnabled ? Color.Primary : Color.Default)">
+                         Disabled="@(!_modelSupportsTools)"
+                         Icon="@(_webSearchEnabled && _modelSupportsTools ? Icons.Material.Filled.CheckBox : Icons.Material.Filled.CheckBoxOutlineBlank)"
+                         IconColor="@(_webSearchEnabled && _modelSupportsTools ? Color.Primary : Color.Default)">
                 Web Search
             </MudMenuItem>
             <MudMenuItem OnClick="ToggleShowThinking"
-                         Icon="@(_showThinking ? Icons.Material.Filled.CheckBox : Icons.Material.Filled.CheckBoxOutlineBlank)"
-                         IconColor="@(_showThinking ? Color.Primary : Color.Default)">
+                         Disabled="@(!_modelSupportsThinking)"
+                         Icon="@(_showThinking && _modelSupportsThinking ? Icons.Material.Filled.CheckBox : Icons.Material.Filled.CheckBoxOutlineBlank)"
+                         IconColor="@(_showThinking && _modelSupportsThinking ? Color.Primary : Color.Default)">
                 Show Thinking
             </MudMenuItem>
         </MudMenu>
