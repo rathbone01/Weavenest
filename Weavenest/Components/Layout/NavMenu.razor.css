@@ -4,20 +4,27 @@
     position: relative;
 }
 
+/* Session link fills the full row so the active highlight covers edge-to-edge */
 .nav-session-item ::deep .session-link {
     flex: 1;
     overflow: hidden;
+    /* Reserve space on the right so title text doesn't clip under the action buttons */
+    padding-right: 60px;
 }
 
-.nav-session-item .delete-btn,
-.nav-session-item ::deep .move-btn {
+/* Action buttons float absolutely over the right side of the row */
+.session-actions {
+    position: absolute;
+    right: 0;
+    top: 50%;
+    transform: translateY(-50%);
+    display: flex;
+    align-items: center;
     opacity: 0;
-    transition: opacity 0.2s;
-    flex-shrink: 0;
+    transition: opacity 0.15s;
 }
 
-.nav-session-item:hover .delete-btn,
-.nav-session-item:hover ::deep .move-btn {
+.nav-session-item:hover .session-actions {
     opacity: 1;
 }
 

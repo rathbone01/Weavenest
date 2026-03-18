@@ -24,10 +24,10 @@ public class AgenticChatService : IAgenticChatService
         Generate 5 to 8 sub-questions that cover different angles of the topic. Be comprehensive - include statistics, expert opinion, counterarguments, recent developments, and practical implications where relevant.
 
         Step 2 - Systematic Research:
-        For each sub-question in the plan, use web_search to find relevant information. After each search, use web_fetch to retrieve the full content of the 1-2 most relevant URLs from the results. Full page content is almost always more valuable than short snippets for thorough research. Only skip fetching if the search snippets already completely and thoroughly answer that sub-question — when in doubt, fetch.
+        For each sub-question in the plan, use web_search to find relevant information. After each search you MUST, use web_fetch to retrieve the full content of the 1-2 most relevant URLs from the results. Full page content is almost always more valuable than short snippets for thorough research. Only skip fetching if the search snippets already completely and thoroughly answer that sub-question — when in doubt, fetch.
 
         Step 3 - Gap Analysis:
-        After completing all planned searches, evaluate whether any important angles remain uncovered. If yes, perform additional searches to fill those gaps. You may do up to 5 bonus searches beyond the plan.
+        After completing all planned searches, evaluate whether any important angles remain uncovered. If yes, perform additional searches to fill those gaps. You may do up to 5 bonus searches beyond the plan. It is better to do more searches and have more information than to miss important details.
 
         Step 4 - Final Report:
         Once research is complete, produce a structured markdown report with the following sections:

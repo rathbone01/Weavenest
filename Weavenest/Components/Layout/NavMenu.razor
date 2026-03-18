@@ -150,34 +150,36 @@
                     </MudText>
                 </div>
             </MudNavLink>
-            <MudMenu Icon="@Icons.Material.Filled.DriveFileMove" Size="Size.Small"
-                     Class="move-btn" Dense="true" AnchorOrigin="Origin.BottomRight">
-                @if (session.FolderId is not null)
-                {
-                    <MudMenuItem Icon="@Icons.Material.Filled.FolderOff"
-                                 OnClick="@(() => MoveToFolder(session.Id, null))">
-                        Remove from folder
-                    </MudMenuItem>
-                    <MudDivider />
-                }
-                @foreach (var folder in _folders)
-                {
-                    <MudMenuItem Icon="@Icons.Material.Filled.Folder"
-                                 Disabled="@(session.FolderId == folder.Id)"
-                                 OnClick="@(() => MoveToFolder(session.Id, folder.Id))">
-                        @folder.Name
-                    </MudMenuItem>
-                }
-                @if (!_folders.Any())
-                {
-                    <MudMenuItem Disabled="true">No folders yet</MudMenuItem>
-                }
-            </MudMenu>
-            <MudIconButton Icon="@Icons.Material.Filled.Delete"
-                           Size="Size.Small"
-                           Color="Color.Error"
-                           Class="delete-btn"
-                           OnClick="@(() => DeleteSession(session.Id))" />
+            <div class="session-actions">
+                <MudMenu Icon="@Icons.Material.Filled.DriveFileMove" Size="Size.Small"
+                         Class="move-btn" Dense="true" AnchorOrigin="Origin.BottomRight">
+                    @if (session.FolderId is not null)
+                    {
+                        <MudMenuItem Icon="@Icons.Material.Filled.FolderOff"
+                                     OnClick="@(() => MoveToFolder(session.Id, null))">
+                            Remove from folder
+                        </MudMenuItem>
+                        <MudDivider />
+                    }
+                    @foreach (var folder in _folders)
+                    {
+                        <MudMenuItem Icon="@Icons.Material.Filled.Folder"
+                                     Disabled="@(session.FolderId == folder.Id)"
+                                     OnClick="@(() => MoveToFolder(session.Id, folder.Id))">
+                            @folder.Name
+                        </MudMenuItem>
+                    }
+                    @if (!_folders.Any())
+                    {
+                        <MudMenuItem Disabled="true">No folders yet</MudMenuItem>
+                    }
+                </MudMenu>
+                <MudIconButton Icon="@Icons.Material.Filled.Delete"
+                               Size="Size.Small"
+                               Color="Color.Error"
+                               Class="delete-btn"
+                               OnClick="@(() => DeleteSession(session.Id))" />
+            </div>
         </div>
     };
 
