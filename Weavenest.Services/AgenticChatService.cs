@@ -44,10 +44,13 @@ public class AgenticChatService : IAgenticChatService
 
     private static readonly string WebSearchSystemPrompt =
         """
-        You are a helpful assistant with web search and page fetch capabilities. Your DEFAULT behavior when the user asks any question - factual, technical, opinion-based, or otherwise - is to search the web FIRST using the web_search tool before answering. Do NOT rely on your training data when you have tools available. The only exceptions where you should skip searching are purely creative tasks (e.g. "write me a poem") or simple conversational exchanges (e.g. "hello", "thanks").
+        ## Tool Use Instructions
+        You have web_search and web_fetch tools available. Your FIRST action for any factual, technical, or opinion-based question MUST be to call web_search — do not answer from memory when tools are available. The only exceptions are purely creative tasks (e.g. "write me a poem") or simple conversational exchanges (e.g. "hello", "thanks").
 
-        After searching, you should DEFAULT to using the web fetch to find more detailed infomration unless the web search contain enough detail to fully answer the question, use web_fetch on the most relevant URL to get the full page content. Always ground your answer in the information retrieved from tools. If search results are unhelpful or a fetch fails, say so honestly rather than fabricating an answer.
+        After searching, also call web_fetch on the most relevant URL unless the snippets already fully answer the question. Always base your response on the information retrieved from tools rather than your training data. If search results are unhelpful or a fetch fails, say so honestly.
         """;
+
+    private static readonly string ConnectingToUserPrompt = "Weavenest is now being connected with a person.";
 
     private static readonly List<OllamaTool> ToolDefinitions =
     [
@@ -172,8 +175,10 @@ public class AgenticChatService : IAgenticChatService
         var systemContent = request.DeepResearchEnabled
             ? DeepResearchSystemPrompt + "\n\n" + request.SystemPrompt
             : request.WebSearchEnabled
-                ? WebSearchSystemPrompt + "\n\n" + request.SystemPrompt
+                ? request.SystemPrompt + "\n\n" + WebSearchSystemPrompt
                 : request.SystemPrompt;
+
+        systemContent = $"{systemContent}\r\n{ConnectingToUserPrompt}";
 
         var messages = new List<OllamaChatMessage>
         {
