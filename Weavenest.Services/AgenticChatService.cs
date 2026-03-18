@@ -128,10 +128,10 @@ public class AgenticChatService : IAgenticChatService
         AgenticChatRequest request,
         Func<string, Task<bool>> urlApprovalCallback,
         Action<AgenticDisplayMessage> onDisplayMessage,
-        CancellationToken ct = default)
+        CancellationToken cancellationToken = default)
     {
         var messages = BuildInitialMessages(request);
-        var ctx = new AgenticLoopContext
+        var context = new AgenticLoopContext
         {
             Request = request,
             Tools = (request.WebSearchEnabled || request.DeepResearchEnabled) ? ToolDefinitions : null,
@@ -140,29 +140,29 @@ public class AgenticChatService : IAgenticChatService
             OnDisplayMessage = onDisplayMessage
         };
 
-        for (var iteration = 0; iteration < ctx.MaxIterations; iteration++)
+        for (var iteration = 0; iteration < context.MaxIterations; iteration++)
         {
             _logger.LogInformation(
                 "Agentic loop iteration {Iteration}/{Max} - model: {Model}, messages: {Count}, tools: {ToolsEnabled}",
-                iteration + 1, ctx.MaxIterations, request.ModelName, messages.Count,
+                iteration + 1, context.MaxIterations, request.ModelName, messages.Count,
                 request.WebSearchEnabled || request.DeepResearchEnabled);
 
-            var (response, error) = await CallOllamaAsync(request.ModelName, messages, ctx.Tools, ct);
+            var (response, error) = await CallOllamaAsync(request.ModelName, messages, context.Tools, cancellationToken);
 
             if (error is not null)
-                return await HandleApiError(iteration, error, request.ModelName, messages, ct);
+                return await HandleApiError(iteration, error, request.ModelName, messages, cancellationToken);
 
             if (response!.Message.ToolCalls is not { Count: > 0 })
             {
-                var result = HandleNoToolCallsResponse(response, ctx, messages);
+                var result = HandleNoToolCallsResponse(response, context, messages);
                 if (result is not null) return result;
                 continue;
             }
 
-            await ProcessToolCalls(response, ctx, messages, ct);
+            await ProcessToolCalls(response, context, messages, cancellationToken);
         }
 
-        return await HandleIterationCap(ctx, messages, ct);
+        return await HandleIterationCap(context, messages, cancellationToken);
     }
 
     // -------------------------------------------------------------------------
@@ -198,7 +198,7 @@ public class AgenticChatService : IAgenticChatService
         string error,
         string modelName,
         List<OllamaChatMessage> messages,
-        CancellationToken ct)
+        CancellationToken cancellationToken)
     {
         if (iteration == 0)
             throw new HttpRequestException(error);
@@ -211,7 +211,7 @@ public class AgenticChatService : IAgenticChatService
             Content = $"[The API call failed: {error}. Provide your best answer using the information gathered so far.]"
         });
 
-        var (retryResponse, _) = await CallOllamaAsync(modelName, messages, null, ct);
+        var (retryResponse, _) = await CallOllamaAsync(modelName, messages, null, cancellationToken);
         if (retryResponse is not null)
         {
             var (rc, rt) = ThinkTagParser.Parse(retryResponse.Message.Content);
@@ -229,16 +229,16 @@ public class AgenticChatService : IAgenticChatService
     /// Returns null to continue the loop, or a result to return immediately.
     private AgenticChatResult? HandleNoToolCallsResponse(
         OllamaChatResponse response,
-        AgenticLoopContext ctx,
+        AgenticLoopContext context,
         List<OllamaChatMessage> messages)
     {
         // Deep research: first text-only response is the research plan
-        if (ctx.IsDeepResearch && !ctx.PlanExtracted && !ctx.HasCalledToolsAtLeastOnce)
+        if (context.IsDeepResearch && !context.PlanExtracted && !context.HasCalledToolsAtLeastOnce)
         {
-            ctx.PlanExtracted = true;
+            context.PlanExtracted = true;
             var planCount = TryExtractPlanCount(response.Message.Content);
 
-            ctx.EmitEvent(
+            context.EmitEvent(
                 planCount > 0 ? $"Research plan generated with {planCount} sub-questions" : "Research plan generated",
                 "research_plan");
 
@@ -255,41 +255,41 @@ public class AgenticChatService : IAgenticChatService
         }
 
         // Deep research: model returned text again instead of a tool call - nudge harder
-        if (ctx.IsDeepResearch && ctx.PlanExtracted && !ctx.HasCalledToolsAtLeastOnce
-            && ctx.ToolNudgeCount < AgenticLoopContext.MaxToolNudges)
+        if (context.IsDeepResearch && context.PlanExtracted && !context.HasCalledToolsAtLeastOnce
+            && context.ToolNudgeCount < AgenticLoopContext.MaxToolNudges)
         {
-            ctx.ToolNudgeCount++;
+            context.ToolNudgeCount++;
             _logger.LogWarning(
                 "Deep research nudge {Count}/{Max} - model returned text instead of tool call",
-                ctx.ToolNudgeCount, AgenticLoopContext.MaxToolNudges);
+                context.ToolNudgeCount, AgenticLoopContext.MaxToolNudges);
 
             messages.Add(new OllamaChatMessage
             {
                 Role = "system",
                 Content = $"You must use the web_search tool now. Call web_search with a search query. " +
-                          $"Do not respond with text. (Attempt {ctx.ToolNudgeCount}/{AgenticLoopContext.MaxToolNudges})"
+                          $"Do not respond with text. (Attempt {context.ToolNudgeCount}/{AgenticLoopContext.MaxToolNudges})"
             });
 
             return null; // continue loop
         }
 
         // Normal termination: model is done with tool calls (or nudges exhausted)
-        if (ctx.IsDeepResearch)
-            ctx.EmitEvent("Synthesizing report...", "finalizing");
+        if (context.IsDeepResearch)
+            context.EmitEvent("Synthesizing report...", "finalizing");
 
         var (content, thinking) = ThinkTagParser.Parse(response.Message.Content);
-        return MakeResult(ctx.Request.ModelName, content, thinking);
+        return MakeResult(context.Request.ModelName, content, thinking);
     }
 
     /// Executes all tool calls in a response, emitting display messages and
     /// appending results to the message list.
     private async Task ProcessToolCalls(
         OllamaChatResponse response,
-        AgenticLoopContext ctx,
+        AgenticLoopContext context,
         List<OllamaChatMessage> messages,
-        CancellationToken ct)
+        CancellationToken cancellationToken)
     {
-        ctx.HasCalledToolsAtLeastOnce = true;
+        context.HasCalledToolsAtLeastOnce = true;
         messages.Add(response.Message);
 
         foreach (var toolCall in response.Message.ToolCalls!)
@@ -297,24 +297,24 @@ public class AgenticChatService : IAgenticChatService
             var toolName = toolCall.Function.Name;
             var args = toolCall.Function.Arguments;
 
-            ctx.OnDisplayMessage(new AgenticDisplayMessage
+            context.OnDisplayMessage(new AgenticDisplayMessage
             {
                 Role = "tool_call",
                 ToolName = toolName,
                 Content = FormatToolCallDisplay(toolName, args),
                 IsEphemeral = true,
-                EventType = ctx.IsDeepResearch ? DetermineCallEventType(toolName) : null
+                EventType = context.IsDeepResearch ? DetermineCallEventType(toolName) : null
             });
 
-            var toolResult = await ExecuteToolAsync(toolName, args, ctx.UrlApprovalCallback, ct);
+            var toolResult = await ExecuteToolAsync(toolName, args, context.UrlApprovalCallback, cancellationToken);
 
-            ctx.OnDisplayMessage(new AgenticDisplayMessage
+            context.OnDisplayMessage(new AgenticDisplayMessage
             {
                 Role = "tool_result",
                 ToolName = toolName,
                 Content = TruncateForDisplay(toolResult, 300),
                 IsEphemeral = true,
-                EventType = ctx.IsDeepResearch ? DetermineResultEventType(toolName, toolResult) : null
+                EventType = context.IsDeepResearch ? DetermineResultEventType(toolName, toolResult) : null
             });
 
             messages.Add(new OllamaChatMessage { Role = "tool", Content = toolResult });
@@ -323,34 +323,34 @@ public class AgenticChatService : IAgenticChatService
 
     /// Called after the iteration cap is hit: prompts the model for a final answer.
     private async Task<AgenticChatResult> HandleIterationCap(
-        AgenticLoopContext ctx,
+        AgenticLoopContext context,
         List<OllamaChatMessage> messages,
-        CancellationToken ct)
+        CancellationToken cancellationToken)
     {
         _logger.LogWarning(
             "Agentic loop hit iteration cap ({Max}) - model: {Model}",
-            ctx.MaxIterations, ctx.Request.ModelName);
+            context.MaxIterations, context.Request.ModelName);
 
-        if (ctx.IsDeepResearch)
-            ctx.EmitEvent("Synthesizing report...", "finalizing");
+        if (context.IsDeepResearch)
+            context.EmitEvent("Synthesizing report...", "finalizing");
 
-        var capMessage = ctx.IsDeepResearch
+        var capMessage = context.IsDeepResearch
             ? "You have completed your research phase (iteration limit reached). Now produce your final comprehensive structured markdown report based on all information gathered so far. Include a summary, detailed findings organized by subtopic, counterarguments and limitations, and a sources list with URLs."
             : "You have reached the maximum number of tool call iterations. Please provide your best answer now based on the information gathered so far.";
 
         messages.Add(new OllamaChatMessage { Role = "system", Content = capMessage });
 
-        var (finalResponse, finalError) = await CallOllamaAsync(ctx.Request.ModelName, messages, null, ct);
+        var (finalResponse, finalError) = await CallOllamaAsync(context.Request.ModelName, messages, null, cancellationToken);
         if (finalResponse is not null)
         {
             var (finalContent, finalThinking) = ThinkTagParser.Parse(finalResponse.Message.Content);
-            return MakeResult(ctx.Request.ModelName, finalContent, finalThinking);
+            return MakeResult(context.Request.ModelName, finalContent, finalThinking);
         }
 
         return new AgenticChatResult
         {
             AssistantContent = $"I encountered an error after exhausting tool iterations: {finalError}",
-            ModelName = ctx.Request.ModelName
+            ModelName = context.Request.ModelName
         };
     }
 
@@ -359,7 +359,7 @@ public class AgenticChatService : IAgenticChatService
     // -------------------------------------------------------------------------
 
     private async Task<(OllamaChatResponse? Response, string? Error)> CallOllamaAsync(
-        string model, List<OllamaChatMessage> messages, List<OllamaTool>? tools, CancellationToken ct)
+        string model, List<OllamaChatMessage> messages, List<OllamaTool>? tools, CancellationToken cancellationToken)
     {
         var client = _httpClientFactory.CreateClient("OllamaApi");
 
@@ -378,7 +378,7 @@ public class AgenticChatService : IAgenticChatService
         HttpResponseMessage response;
         try
         {
-            response = await client.PostAsync(url, content, ct);
+            response = await client.PostAsync(url, content, cancellationToken);
         }
         catch (HttpRequestException ex)
         {
@@ -388,14 +388,14 @@ public class AgenticChatService : IAgenticChatService
 
         if (!response.IsSuccessStatusCode)
         {
-            var errorBody = await response.Content.ReadAsStringAsync(ct);
+            var errorBody = await response.Content.ReadAsStringAsync(cancellationToken);
             var statusCode = (int)response.StatusCode;
             var reason = response.ReasonPhrase ?? "Unknown";
             _logger.LogError("Ollama API error {StatusCode} {Reason}: {Body}", statusCode, reason, errorBody);
             return (null, $"HTTP {statusCode} {reason}: {errorBody}");
         }
 
-        var responseJson = await response.Content.ReadAsStringAsync(ct);
+        var responseJson = await response.Content.ReadAsStringAsync(cancellationToken);
         var result = JsonSerializer.Deserialize<OllamaChatResponse>(responseJson);
 
         if (result is null)
@@ -412,7 +412,7 @@ public class AgenticChatService : IAgenticChatService
         string toolName,
         JsonElement arguments,
         Func<string, Task<bool>> urlApprovalCallback,
-        CancellationToken ct)
+        CancellationToken cancellationToken)
     {
         switch (toolName)
         {
@@ -425,7 +425,7 @@ public class AgenticChatService : IAgenticChatService
                 if (string.IsNullOrWhiteSpace(query))
                     return "[Search failed: no query provided]";
 
-                return await _searchTool.SearchAsync(query, ct);
+                return await _searchTool.SearchAsync(query, cancellationToken);
             }
 
             case "web_fetch":
@@ -441,7 +441,7 @@ public class AgenticChatService : IAgenticChatService
                 if (!approved)
                     return "[The user denied access to this URL. Continue without this content and provide your best answer based on available information.]";
 
-                return await _fetchTool.FetchAsync(url, ct);
+                return await _fetchTool.FetchAsync(url, cancellationToken);
             }
 
             default:
@@ -491,11 +491,11 @@ public class AgenticChatService : IAgenticChatService
     {
         try
         {
-            var startIdx = content.IndexOf('{');
-            var endIdx   = content.LastIndexOf('}');
-            if (startIdx < 0 || endIdx < 0 || endIdx <= startIdx) return 0;
+            var startIndex = content.IndexOf('{');
+            var endIndex   = content.LastIndexOf('}');
+            if (startIndex < 0 || endIndex < 0 || endIndex <= startIndex) return 0;
 
-            var jsonStr = content[startIdx..(endIdx + 1)];
+            var jsonStr = content[startIndex..(endIndex + 1)];
             using var doc = JsonDocument.Parse(jsonStr);
             if (doc.RootElement.TryGetProperty("plan", out var planArray) &&
                 planArray.ValueKind == JsonValueKind.Array)
