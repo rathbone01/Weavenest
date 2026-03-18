@@ -94,7 +94,12 @@ public partial class Chat : IDisposable
     private bool _inThinkBlock;
     private string _tokenBuffer = "";
 
-    private void ToggleWebSearch() => _webSearchEnabled = !_webSearchEnabled;
+    private void ToggleWebSearch()
+    {
+        _webSearchEnabled = !_webSearchEnabled;
+        if (!_webSearchEnabled)
+            _deepResearchEnabled = false;
+    }
     private void ToggleShowThinking() => _showThinking = !_showThinking;
     private void ToggleDeepResearch() => _deepResearchEnabled = !_deepResearchEnabled;
 

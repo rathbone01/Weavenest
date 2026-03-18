@@ -50,12 +50,6 @@
         </MudTooltip>
         <MudMenu Icon="@Icons.Material.Filled.Settings" AnchorOrigin="Origin.BottomRight"
                  TransformOrigin="Origin.TopRight" Dense="true">
-            <MudMenuItem OnClick="ToggleWebSearch"
-                         Disabled="@(!_modelSupportsTools)"
-                         Icon="@(_webSearchEnabled && _modelSupportsTools ? Icons.Material.Filled.CheckBox : Icons.Material.Filled.CheckBoxOutlineBlank)"
-                         IconColor="@(_webSearchEnabled && _modelSupportsTools ? Color.Primary : Color.Default)">
-                Web Search
-            </MudMenuItem>
             <MudMenuItem OnClick="ToggleShowThinking"
                          Disabled="@(!_modelSupportsThinking)"
                          Icon="@(_showThinking && _modelSupportsThinking ? Icons.Material.Filled.CheckBox : Icons.Material.Filled.CheckBoxOutlineBlank)"
@@ -186,15 +180,28 @@
     <div class="chat-input-area">
         <div class="chat-input-chips">
             <MudChip T="string"
-                     Color="@(_deepResearchEnabled ? Color.Warning : Color.Default)"
-                     Variant="@(_deepResearchEnabled ? Variant.Filled : Variant.Outlined)"
+                     Color="@(_webSearchEnabled ? Color.Primary : Color.Default)"
+                     Variant="@(_webSearchEnabled ? Variant.Filled : Variant.Outlined)"
                      Size="Size.Small"
-                     Icon="@Icons.Material.Filled.Science"
-                     OnClick="ToggleDeepResearch"
+                     Icon="@Icons.Material.Filled.TravelExplore"
+                     OnClick="ToggleWebSearch"
                      Disabled="@(_isProcessing || !_modelSupportsTools)"
                      Class="deep-research-chip">
-                Deep Research
+                Web Search
             </MudChip>
+            <MudTooltip Text="@(_webSearchEnabled ? "" : "Enable web search to use deep research")"
+                        Disabled="@_webSearchEnabled">
+                <MudChip T="string"
+                         Color="@(_deepResearchEnabled ? Color.Warning : Color.Default)"
+                         Variant="@(_deepResearchEnabled ? Variant.Filled : Variant.Outlined)"
+                         Size="Size.Small"
+                         Icon="@Icons.Material.Filled.Science"
+                         OnClick="ToggleDeepResearch"
+                         Disabled="@(_isProcessing || !_modelSupportsTools || !_webSearchEnabled)"
+                         Class="deep-research-chip">
+                    Deep Research
+                </MudChip>
+            </MudTooltip>
         </div>
         <MudTextField @bind-Value="_userInput"
                       Placeholder="Type your message... (Shift+Enter for new line)"
