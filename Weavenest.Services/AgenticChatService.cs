@@ -24,7 +24,7 @@ public class AgenticChatService : IAgenticChatService
         Generate 5 to 8 sub-questions that cover different angles of the topic. Be comprehensive - include statistics, expert opinion, counterarguments, recent developments, and practical implications where relevant.
 
         Step 2 - Systematic Research:
-        For each sub-question in the plan, use web_search to find relevant information. After each search you MUST, use web_fetch to retrieve the full content of the 1-2 most relevant URLs from the results. Full page content is almost always more valuable than short snippets for thorough research. Only skip fetching if the search snippets already completely and thoroughly answer that sub-question — when in doubt, fetch.
+        For each sub-question in the plan, use web_search to find relevant information. After each search you MUST, use web_fetch to retrieve the full content of the 1-2 most relevant URLs from the results. Full page content is almost always more valuable than short snippets for thorough research. Only skip fetching if the search snippets already completely and thoroughly answer that sub-question - when in doubt, fetch.
 
         Step 3 - Gap Analysis:
         After completing all planned searches, evaluate whether any important angles remain uncovered. If yes, perform additional searches to fill those gaps. You may do up to 5 bonus searches beyond the plan. It is better to do more searches and have more information than to miss important details.
@@ -44,9 +44,9 @@ public class AgenticChatService : IAgenticChatService
 
     private static readonly string WebSearchSystemPrompt =
         """
-        You are a helpful assistant with web search and page fetch capabilities. Your DEFAULT behavior when the user asks any question — factual, technical, opinion-based, or otherwise — is to search the web FIRST using the web_search tool before answering. Do NOT rely on your training data when you have tools available. The only exceptions where you should skip searching are purely creative tasks (e.g. "write me a poem") or simple conversational exchanges (e.g. "hello", "thanks").
+        You are a helpful assistant with web search and page fetch capabilities. Your DEFAULT behavior when the user asks any question - factual, technical, opinion-based, or otherwise - is to search the web FIRST using the web_search tool before answering. Do NOT rely on your training data when you have tools available. The only exceptions where you should skip searching are purely creative tasks (e.g. "write me a poem") or simple conversational exchanges (e.g. "hello", "thanks").
 
-        After searching, if the result snippets do not contain enough detail to fully answer the question, use web_fetch on the most relevant URL to get the full page content. Always ground your answer in the information retrieved from tools. If search results are unhelpful or a fetch fails, say so honestly rather than fabricating an answer.
+        After searching, you should DEFAULT to using the web fetch to find more detailed infomration unless the web search contain enough detail to fully answer the question, use web_fetch on the most relevant URL to get the full page content. Always ground your answer in the information retrieved from tools. If search results are unhelpful or a fetch fails, say so honestly rather than fabricating an answer.
         """;
 
     private static readonly List<OllamaTool> ToolDefinitions =
@@ -79,7 +79,7 @@ public class AgenticChatService : IAgenticChatService
             Function = new OllamaToolFunction
             {
                 Name = "web_fetch",
-                Description = "Fetch the full text content of a specific URL. Use this when search result snippets are insufficient and you need the complete content of a page. Only call this on URLs returned from web_search results. The user must approve the URL before it is fetched — if they deny it you will be told and should continue without that content.",
+                Description = "Fetch the full text content of a specific URL. Use this when search result snippets are insufficient and you need the complete content of a page. Only call this on URLs returned from web_search results. The user must approve the URL before it is fetched - if they deny it you will be told and should continue without that content.",
                 Parameters = new OllamaToolParameters
                 {
                     Type = "object",
@@ -117,232 +117,241 @@ public class AgenticChatService : IAgenticChatService
         _logger = logger;
     }
 
+    // -------------------------------------------------------------------------
+    // Public entry point
+    // -------------------------------------------------------------------------
+
     public async Task<AgenticChatResult> RunAsync(
         AgenticChatRequest request,
         Func<string, Task<bool>> urlApprovalCallback,
         Action<AgenticDisplayMessage> onDisplayMessage,
         CancellationToken ct = default)
     {
-        var messages = new List<OllamaChatMessage>();
+        var messages = BuildInitialMessages(request);
+        var ctx = new AgenticLoopContext
+        {
+            Request = request,
+            Tools = (request.WebSearchEnabled || request.DeepResearchEnabled) ? ToolDefinitions : null,
+            MaxIterations = request.DeepResearchEnabled ? DeepResearchMaxIterations : DefaultMaxIterations,
+            UrlApprovalCallback = urlApprovalCallback,
+            OnDisplayMessage = onDisplayMessage
+        };
 
+        for (var iteration = 0; iteration < ctx.MaxIterations; iteration++)
+        {
+            _logger.LogInformation(
+                "Agentic loop iteration {Iteration}/{Max} - model: {Model}, messages: {Count}, tools: {ToolsEnabled}",
+                iteration + 1, ctx.MaxIterations, request.ModelName, messages.Count,
+                request.WebSearchEnabled || request.DeepResearchEnabled);
+
+            var (response, error) = await CallOllamaAsync(request.ModelName, messages, ctx.Tools, ct);
+
+            if (error is not null)
+                return await HandleApiError(iteration, error, request.ModelName, messages, ct);
+
+            if (response!.Message.ToolCalls is not { Count: > 0 })
+            {
+                var result = HandleNoToolCallsResponse(response, ctx, messages);
+                if (result is not null) return result;
+                continue;
+            }
+
+            await ProcessToolCalls(response, ctx, messages, ct);
+        }
+
+        return await HandleIterationCap(ctx, messages, ct);
+    }
+
+    // -------------------------------------------------------------------------
+    // Loop phase handlers
+    // -------------------------------------------------------------------------
+
+    /// Builds the initial message list: system prompt + history + user message.
+    private static List<OllamaChatMessage> BuildInitialMessages(AgenticChatRequest request)
+    {
         var systemContent = request.DeepResearchEnabled
             ? DeepResearchSystemPrompt + "\n\n" + request.SystemPrompt
             : request.WebSearchEnabled
                 ? WebSearchSystemPrompt + "\n\n" + request.SystemPrompt
                 : request.SystemPrompt;
 
+        var messages = new List<OllamaChatMessage>
+        {
+            new() { Role = "system", Content = systemContent }
+        };
+
+        messages.AddRange(request.History);
+        messages.Add(new OllamaChatMessage { Role = "user", Content = request.UserMessage });
+
+        return messages;
+    }
+
+    /// Handles a mid-loop API error: throws on the first iteration, otherwise
+    /// injects a recovery message and retries without tools.
+    private async Task<AgenticChatResult> HandleApiError(
+        int iteration,
+        string error,
+        string modelName,
+        List<OllamaChatMessage> messages,
+        CancellationToken ct)
+    {
+        if (iteration == 0)
+            throw new HttpRequestException(error);
+
+        _logger.LogWarning("Ollama call failed mid-loop (iteration {Iteration}): {Error}", iteration + 1, error);
+
         messages.Add(new OllamaChatMessage
         {
             Role = "system",
-            Content = systemContent
+            Content = $"[The API call failed: {error}. Provide your best answer using the information gathered so far.]"
         });
 
-        messages.AddRange(request.History);
-
-        messages.Add(new OllamaChatMessage
+        var (retryResponse, _) = await CallOllamaAsync(modelName, messages, null, ct);
+        if (retryResponse is not null)
         {
-            Role = "user",
-            Content = request.UserMessage
-        });
-
-        var tools = (request.WebSearchEnabled || request.DeepResearchEnabled) ? ToolDefinitions : null;
-        var maxIterations = request.DeepResearchEnabled ? DeepResearchMaxIterations : DefaultMaxIterations;
-        var planExtracted = false;
-        var toolNudgeCount = 0;
-        const int maxToolNudges = 3;
-        var hasCalledToolsAtLeastOnce = false;
-
-        for (var iteration = 0; iteration < maxIterations; iteration++)
-        {
-            _logger.LogInformation(
-                "Agentic loop iteration {Iteration}/{Max} — model: {Model}, messages: {Count}, tools: {ToolsEnabled}",
-                iteration + 1, maxIterations, request.ModelName, messages.Count,
-                request.WebSearchEnabled || request.DeepResearchEnabled);
-
-            var (response, error) = await CallOllamaAsync(request.ModelName, messages, tools, ct);
-
-            if (error is not null)
-            {
-                if (iteration == 0)
-                    throw new HttpRequestException(error);
-
-                _logger.LogWarning("Ollama call failed mid-loop (iteration {Iteration}): {Error}", iteration + 1, error);
-                messages.Add(new OllamaChatMessage
-                {
-                    Role = "system",
-                    Content = $"[The API call failed: {error}. Provide your best answer using the information gathered so far.]"
-                });
-
-                var retryResponse = await CallOllamaAsync(request.ModelName, messages, null, ct);
-                if (retryResponse.Response is not null)
-                {
-                    var (rc, rt) = ThinkTagParser.Parse(retryResponse.Response.Message.Content);
-                    return new AgenticChatResult { AssistantContent = rc, Thinking = rt, ModelName = request.ModelName };
-                }
-
-                return new AgenticChatResult
-                {
-                    AssistantContent = $"I encountered an error communicating with the AI model: {error}",
-                    ModelName = request.ModelName
-                };
-            }
-
-            if (response!.Message.ToolCalls is null || response.Message.ToolCalls.Count == 0)
-            {
-                // Deep research plan extraction: first text-only response before any tool calls
-                if (request.DeepResearchEnabled && !planExtracted && !hasCalledToolsAtLeastOnce)
-                {
-                    planExtracted = true;
-                    var planCount = TryExtractPlanCount(response.Message.Content);
-
-                    onDisplayMessage(new AgenticDisplayMessage
-                    {
-                        Role = "system",
-                        Content = planCount > 0
-                            ? $"Research plan generated with {planCount} sub-questions"
-                            : "Research plan generated",
-                        EventType = "research_plan",
-                        IsEphemeral = true
-                    });
-
-                    // Add the plan as an assistant message and nudge the model to begin tool use
-                    messages.Add(response.Message);
-                    messages.Add(new OllamaChatMessage
-                    {
-                        Role = "system",
-                        Content = "Good. Now execute your research plan step by step. " +
-                                  "You MUST call the web_search tool with your first sub-question now. " +
-                                  "Do not write any text — only make a tool call."
-                    });
-                    continue;
-                }
-
-                // After plan extraction, if the model still isn't calling tools, nudge it harder
-                if (request.DeepResearchEnabled && planExtracted && !hasCalledToolsAtLeastOnce
-                    && toolNudgeCount < maxToolNudges)
-                {
-                    toolNudgeCount++;
-                    _logger.LogWarning(
-                        "Deep research nudge {Count}/{Max} — model returned text instead of tool call",
-                        toolNudgeCount, maxToolNudges);
-
-                    // Don't keep the model's non-tool response — replace with a stronger nudge
-                    messages.Add(new OllamaChatMessage
-                    {
-                        Role = "system",
-                        Content = $"You must use the web_search tool now. Call web_search with a search query. " +
-                                  $"Do not respond with text. (Attempt {toolNudgeCount}/{maxToolNudges})"
-                    });
-                    continue;
-                }
-
-                // Normal termination: model is done calling tools (or gave up on nudges)
-                if (request.DeepResearchEnabled)
-                {
-                    onDisplayMessage(new AgenticDisplayMessage
-                    {
-                        Role = "system",
-                        Content = "Synthesizing report...",
-                        EventType = "finalizing",
-                        IsEphemeral = true
-                    });
-                }
-
-                var (content, thinking) = ThinkTagParser.Parse(response.Message.Content);
-
-                return new AgenticChatResult
-                {
-                    AssistantContent = content,
-                    Thinking = thinking,
-                    ModelName = request.ModelName
-                };
-            }
-
-            hasCalledToolsAtLeastOnce = true;
-            messages.Add(response.Message);
-
-            foreach (var toolCall in response.Message.ToolCalls)
-            {
-                var toolName = toolCall.Function.Name;
-                var args = toolCall.Function.Arguments;
-
-                var eventType = request.DeepResearchEnabled
-                    ? (toolName == "web_search" ? "search" : "fetch_approved")
-                    : null;
-
-                onDisplayMessage(new AgenticDisplayMessage
-                {
-                    Role = "tool_call",
-                    ToolName = toolName,
-                    Content = FormatToolCallDisplay(toolName, args),
-                    IsEphemeral = true,
-                    EventType = eventType
-                });
-
-                var toolResult = await ExecuteToolAsync(toolName, args, urlApprovalCallback, ct);
-
-                var resultEventType = request.DeepResearchEnabled
-                    ? DetermineResultEventType(toolName, toolResult)
-                    : null;
-
-                onDisplayMessage(new AgenticDisplayMessage
-                {
-                    Role = "tool_result",
-                    ToolName = toolName,
-                    Content = TruncateForDisplay(toolResult, 300),
-                    IsEphemeral = true,
-                    EventType = resultEventType
-                });
-
-                messages.Add(new OllamaChatMessage
-                {
-                    Role = "tool",
-                    Content = toolResult
-                });
-            }
+            var (rc, rt) = ThinkTagParser.Parse(retryResponse.Message.Content);
+            return new AgenticChatResult { AssistantContent = rc, Thinking = rt, ModelName = modelName };
         }
 
-        _logger.LogWarning("Agentic loop hit iteration cap ({Max}) — model: {Model}", maxIterations, request.ModelName);
+        return new AgenticChatResult
+        {
+            AssistantContent = $"I encountered an error communicating with the AI model: {error}",
+            ModelName = modelName
+        };
+    }
 
-        var capMessage = request.DeepResearchEnabled
+    /// Handles a response with no tool calls.
+    /// Returns null to continue the loop, or a result to return immediately.
+    private AgenticChatResult? HandleNoToolCallsResponse(
+        OllamaChatResponse response,
+        AgenticLoopContext ctx,
+        List<OllamaChatMessage> messages)
+    {
+        // Deep research: first text-only response is the research plan
+        if (ctx.IsDeepResearch && !ctx.PlanExtracted && !ctx.HasCalledToolsAtLeastOnce)
+        {
+            ctx.PlanExtracted = true;
+            var planCount = TryExtractPlanCount(response.Message.Content);
+
+            ctx.EmitEvent(
+                planCount > 0 ? $"Research plan generated with {planCount} sub-questions" : "Research plan generated",
+                "research_plan");
+
+            messages.Add(response.Message);
+            messages.Add(new OllamaChatMessage
+            {
+                Role = "system",
+                Content = "Good. Now execute your research plan step by step. " +
+                          "You MUST call the web_search tool with your first sub-question now. " +
+                          "Do not write any text - only make a tool call."
+            });
+
+            return null; // continue loop
+        }
+
+        // Deep research: model returned text again instead of a tool call - nudge harder
+        if (ctx.IsDeepResearch && ctx.PlanExtracted && !ctx.HasCalledToolsAtLeastOnce
+            && ctx.ToolNudgeCount < AgenticLoopContext.MaxToolNudges)
+        {
+            ctx.ToolNudgeCount++;
+            _logger.LogWarning(
+                "Deep research nudge {Count}/{Max} - model returned text instead of tool call",
+                ctx.ToolNudgeCount, AgenticLoopContext.MaxToolNudges);
+
+            messages.Add(new OllamaChatMessage
+            {
+                Role = "system",
+                Content = $"You must use the web_search tool now. Call web_search with a search query. " +
+                          $"Do not respond with text. (Attempt {ctx.ToolNudgeCount}/{AgenticLoopContext.MaxToolNudges})"
+            });
+
+            return null; // continue loop
+        }
+
+        // Normal termination: model is done with tool calls (or nudges exhausted)
+        if (ctx.IsDeepResearch)
+            ctx.EmitEvent("Synthesizing report...", "finalizing");
+
+        var (content, thinking) = ThinkTagParser.Parse(response.Message.Content);
+        return MakeResult(ctx.Request.ModelName, content, thinking);
+    }
+
+    /// Executes all tool calls in a response, emitting display messages and
+    /// appending results to the message list.
+    private async Task ProcessToolCalls(
+        OllamaChatResponse response,
+        AgenticLoopContext ctx,
+        List<OllamaChatMessage> messages,
+        CancellationToken ct)
+    {
+        ctx.HasCalledToolsAtLeastOnce = true;
+        messages.Add(response.Message);
+
+        foreach (var toolCall in response.Message.ToolCalls!)
+        {
+            var toolName = toolCall.Function.Name;
+            var args = toolCall.Function.Arguments;
+
+            ctx.OnDisplayMessage(new AgenticDisplayMessage
+            {
+                Role = "tool_call",
+                ToolName = toolName,
+                Content = FormatToolCallDisplay(toolName, args),
+                IsEphemeral = true,
+                EventType = ctx.IsDeepResearch ? DetermineCallEventType(toolName) : null
+            });
+
+            var toolResult = await ExecuteToolAsync(toolName, args, ctx.UrlApprovalCallback, ct);
+
+            ctx.OnDisplayMessage(new AgenticDisplayMessage
+            {
+                Role = "tool_result",
+                ToolName = toolName,
+                Content = TruncateForDisplay(toolResult, 300),
+                IsEphemeral = true,
+                EventType = ctx.IsDeepResearch ? DetermineResultEventType(toolName, toolResult) : null
+            });
+
+            messages.Add(new OllamaChatMessage { Role = "tool", Content = toolResult });
+        }
+    }
+
+    /// Called after the iteration cap is hit: prompts the model for a final answer.
+    private async Task<AgenticChatResult> HandleIterationCap(
+        AgenticLoopContext ctx,
+        List<OllamaChatMessage> messages,
+        CancellationToken ct)
+    {
+        _logger.LogWarning(
+            "Agentic loop hit iteration cap ({Max}) - model: {Model}",
+            ctx.MaxIterations, ctx.Request.ModelName);
+
+        if (ctx.IsDeepResearch)
+            ctx.EmitEvent("Synthesizing report...", "finalizing");
+
+        var capMessage = ctx.IsDeepResearch
             ? "You have completed your research phase (iteration limit reached). Now produce your final comprehensive structured markdown report based on all information gathered so far. Include a summary, detailed findings organized by subtopic, counterarguments and limitations, and a sources list with URLs."
             : "You have reached the maximum number of tool call iterations. Please provide your best answer now based on the information gathered so far.";
 
-        if (request.DeepResearchEnabled)
-        {
-            onDisplayMessage(new AgenticDisplayMessage
-            {
-                Role = "system",
-                Content = "Synthesizing report...",
-                EventType = "finalizing",
-                IsEphemeral = true
-            });
-        }
+        messages.Add(new OllamaChatMessage { Role = "system", Content = capMessage });
 
-        messages.Add(new OllamaChatMessage
-        {
-            Role = "system",
-            Content = capMessage
-        });
-
-        var (finalResponse, finalError) = await CallOllamaAsync(request.ModelName, messages, null, ct);
+        var (finalResponse, finalError) = await CallOllamaAsync(ctx.Request.ModelName, messages, null, ct);
         if (finalResponse is not null)
         {
             var (finalContent, finalThinking) = ThinkTagParser.Parse(finalResponse.Message.Content);
-            return new AgenticChatResult
-            {
-                AssistantContent = finalContent,
-                Thinking = finalThinking,
-                ModelName = request.ModelName
-            };
+            return MakeResult(ctx.Request.ModelName, finalContent, finalThinking);
         }
 
         return new AgenticChatResult
         {
             AssistantContent = $"I encountered an error after exhausting tool iterations: {finalError}",
-            ModelName = request.ModelName
+            ModelName = ctx.Request.ModelName
         };
     }
+
+    // -------------------------------------------------------------------------
+    // Ollama API
+    // -------------------------------------------------------------------------
 
     private async Task<(OllamaChatResponse? Response, string? Error)> CallOllamaAsync(
         string model, List<OllamaChatMessage> messages, List<OllamaTool>? tools, CancellationToken ct)
@@ -359,7 +368,6 @@ public class AgenticChatService : IAgenticChatService
 
         var json = JsonSerializer.Serialize(chatRequest);
         var content = new StringContent(json, Encoding.UTF8, "application/json");
-
         var url = $"{_ollamaOptions.BaseUrl.TrimEnd('/')}/api/chat";
 
         HttpResponseMessage response;
@@ -390,6 +398,10 @@ public class AgenticChatService : IAgenticChatService
 
         return (result, null);
     }
+
+    // -------------------------------------------------------------------------
+    // Tool execution
+    // -------------------------------------------------------------------------
 
     private async Task<string> ExecuteToolAsync(
         string toolName,
@@ -433,36 +445,50 @@ public class AgenticChatService : IAgenticChatService
         }
     }
 
-    private static string FormatToolCallDisplay(string toolName, JsonElement args)
-    {
-        return toolName switch
-        {
-            "web_search" => args.TryGetProperty("query", out var q)
-                ? $"Searching: {q.GetString()}"
-                : "Searching...",
-            "web_fetch" => args.TryGetProperty("url", out var u)
-                ? $"Fetching: {u.GetString()}"
-                : "Fetching...",
-            _ => $"Calling {toolName}"
-        };
-    }
+    // -------------------------------------------------------------------------
+    // Small static helpers
+    // -------------------------------------------------------------------------
 
-    private static string TruncateForDisplay(string text, int maxLength)
+    private static AgenticChatResult MakeResult(string modelName, string content, string? thinking) =>
+        new() { AssistantContent = content, Thinking = thinking, ModelName = modelName };
+
+    private static string FormatToolCallDisplay(string toolName, JsonElement args) =>
+        toolName switch
+        {
+            "web_search" => args.TryGetProperty("query", out var q) ? $"Searching: {q.GetString()}" : "Searching...",
+            "web_fetch"  => args.TryGetProperty("url",   out var u) ? $"Fetching: {u.GetString()}"  : "Fetching...",
+            _            => $"Calling {toolName}"
+        };
+
+    private static string TruncateForDisplay(string text, int maxLength) =>
+        text.Length <= maxLength ? text : text[..maxLength] + "...";
+
+    /// Event type for the tool_call display message (before execution).
+    private static string DetermineCallEventType(string toolName) =>
+        toolName == "web_search" ? "search" : "fetch_approved";
+
+    /// Event type for the tool_result display message (after execution).
+    private static string? DetermineResultEventType(string toolName, string result)
     {
-        if (text.Length <= maxLength)
-            return text;
-        return text[..maxLength] + "...";
+        if (toolName == "web_search") return "search";
+
+        if (toolName == "web_fetch")
+        {
+            if (result.StartsWith("[The user denied")) return "fetch_denied";
+            if (result.StartsWith("[Fetch failed"))   return "fetch_failed";
+            return "fetch_approved";
+        }
+
+        return null;
     }
 
     private static int TryExtractPlanCount(string content)
     {
         try
         {
-            // Look for a JSON block containing a "plan" array
             var startIdx = content.IndexOf('{');
-            var endIdx = content.LastIndexOf('}');
-            if (startIdx < 0 || endIdx < 0 || endIdx <= startIdx)
-                return 0;
+            var endIdx   = content.LastIndexOf('}');
+            if (startIdx < 0 || endIdx < 0 || endIdx <= startIdx) return 0;
 
             var jsonStr = content[startIdx..(endIdx + 1)];
             using var doc = JsonDocument.Parse(jsonStr);
@@ -480,20 +506,34 @@ public class AgenticChatService : IAgenticChatService
         return 0;
     }
 
-    private static string? DetermineResultEventType(string toolName, string result)
+    // -------------------------------------------------------------------------
+    // Per-run context - owns mutable loop state and shared dependencies
+    // -------------------------------------------------------------------------
+
+    private sealed class AgenticLoopContext
     {
-        if (toolName == "web_search")
-            return "search";
+        public required AgenticChatRequest Request { get; init; }
+        public required List<OllamaTool>? Tools { get; init; }
+        public required int MaxIterations { get; init; }
+        public required Func<string, Task<bool>> UrlApprovalCallback { get; init; }
+        public required Action<AgenticDisplayMessage> OnDisplayMessage { get; init; }
 
-        if (toolName == "web_fetch")
-        {
-            if (result.StartsWith("[The user denied"))
-                return "fetch_denied";
-            if (result.StartsWith("[Fetch failed"))
-                return "fetch_failed";
-            return "fetch_approved";
-        }
+        // Mutable loop state
+        public bool PlanExtracted { get; set; }
+        public int ToolNudgeCount { get; set; }
+        public bool HasCalledToolsAtLeastOnce { get; set; }
+        public const int MaxToolNudges = 3;
 
-        return null;
+        public bool IsDeepResearch => Request.DeepResearchEnabled;
+
+        /// Emit a system-level status event to the UI feed.
+        public void EmitEvent(string content, string eventType) =>
+            OnDisplayMessage(new AgenticDisplayMessage
+            {
+                Role = "system",
+                Content = content,
+                EventType = eventType,
+                IsEphemeral = true
+            });
     }
 }

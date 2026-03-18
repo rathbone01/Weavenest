@@ -33,7 +33,7 @@ public class OllamaService : IOllamaService
         Action<string>? onThinkToken = null,
         [EnumeratorCancellation] CancellationToken cancellationToken = default)
     {
-        _logger.LogInformation("Starting chat stream — model: {Model}, history: {HistoryCount} messages, system prompt: {HasSystemPrompt}",
+        _logger.LogInformation("Starting chat stream - model: {Model}, history: {HistoryCount} messages, system prompt: {HasSystemPrompt}",
             modelName, history.Count, systemPrompt is not null);
 
         var chat = systemPrompt is not null
@@ -64,14 +64,14 @@ public class OllamaService : IOllamaService
         {
             if (cancellationToken.IsCancellationRequested)
             {
-                _logger.LogInformation("Chat stream cancelled after {TokenCount} tokens — model: {Model}", tokenCount, modelName);
+                _logger.LogInformation("Chat stream cancelled after {TokenCount} tokens - model: {Model}", tokenCount, modelName);
                 yield break;
             }
             tokenCount++;
             yield return token ?? string.Empty;
         }
 
-        _logger.LogInformation("Chat stream complete — model: {Model}, tokens yielded: {TokenCount}", modelName, tokenCount);
+        _logger.LogInformation("Chat stream complete - model: {Model}, tokens yielded: {TokenCount}", modelName, tokenCount);
     }
 
     public async Task<IEnumerable<string>> GetModelsAsync(CancellationToken cancellationToken = default)
@@ -146,7 +146,7 @@ public class OllamaService : IOllamaService
                                   && !caps.Contains("completion", StringComparer.OrdinalIgnoreCase);
             var result = new ModelCapabilities(supportsThinking, supportsTools, isEmbeddingOnly);
             _capabilitiesCache[modelName] = result;
-            _logger.LogInformation("Model {Model} capabilities — thinking: {Thinking}, tools: {Tools}, embeddingOnly: {EmbeddingOnly}",
+            _logger.LogInformation("Model {Model} capabilities - thinking: {Thinking}, tools: {Tools}, embeddingOnly: {EmbeddingOnly}",
                 modelName, supportsThinking, supportsTools, isEmbeddingOnly);
             return result;
         }
