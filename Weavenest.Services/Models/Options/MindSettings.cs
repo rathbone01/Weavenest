@@ -15,4 +15,16 @@ public class MindSettings
     public float SemanticWeight { get; set; } = 0.5f;
     public float ConfidenceLowThreshold { get; set; } = 0.4f;
     public float ConfidenceHighThreshold { get; set; } = 0.7f;
+
+    /// <summary>Domains Jeremy is allowed to fetch during idle ticks or research. Empty list means no restriction.</summary>
+    public List<string> WhitelistedDomains { get; set; } =
+    [
+        "en.wikipedia.org",
+        "pubmed.ncbi.nlm.nih.gov",
+        "arxiv.org",
+        "plato.stanford.edu",
+        "scholar.google.com",
+        "www.nature.com",
+        "www.science.org"
+    ];
 }

@@ -169,6 +169,7 @@ public class ConsciousnessLoopService : BackgroundService
 
         var toolDefinitions = toolDispatch.GetToolDefinitions();
         var toolCallLog = new List<object>();
+        var seenToolCalls = new HashSet<string>(StringComparer.Ordinal);
         string? subconsciousContent = null;
         string? consciousContent = null;
         string? spokeContent = null;
@@ -230,8 +231,8 @@ public class ConsciousnessLoopService : BackgroundService
             // Add assistant message to history
             messages.Add(response.Message);
 
-            // Execute tool calls
-            var requestedContinue = false;
+            // Execute tool calls with repeat detection
+            var allRepeats = true;
             foreach (var toolCall in response.Message.ToolCalls)
             {
                 var toolName = toolCall.Function.Name;
@@ -244,6 +245,20 @@ public class ConsciousnessLoopService : BackgroundService
                     args = JsonDocument.Parse(raw).RootElement;
                 }
 
+                // Repeat guard: skip duplicate tool calls within this tick
+                var callKey = $"{toolName}:{args}";
+                if (!seenToolCalls.Add(callKey))
+                {
+                    _logger.LogWarning("Repeat tool call detected and skipped: {ToolName} with args {Args}", toolName, args);
+                    messages.Add(new OllamaChatMessage
+                    {
+                        Role = "tool",
+                        Content = $"[Skipped: you already called {toolName} with these exact arguments this tick. Try a different query or move on.]"
+                    });
+                    continue;
+                }
+
+                allRepeats = false;
                 var result = await toolDispatch.DispatchAsync(toolName, args, ct);
 
                 toolCallLog.Add(new { Tool = toolName, Arguments = args.ToString(), Result = result });
@@ -260,14 +275,14 @@ public class ConsciousnessLoopService : BackgroundService
                     if (spokenMsg is not null)
                         spokeContent = (spokeContent is null) ? spokenMsg : spokeContent + "\n" + spokenMsg;
                 }
-
-                if (toolName == "continue")
-                    requestedContinue = true;
             }
 
-            // Only keep looping if Jeremy explicitly asked for another iteration
-            if (!requestedContinue)
+            // If every tool call this iteration was a repeat, the model is looping — break out
+            if (allRepeats)
+            {
+                _logger.LogWarning("All tool calls in iteration were repeats — breaking tool loop");
                 break;
+            }
         }
 
         // If tools were used the loop exits without a final prose response.
@@ -284,7 +299,7 @@ public class ConsciousnessLoopService : BackgroundService
                     new()
                     {
                         Role = "user",
-                        Content = "[Inner monologue phase — no tools are available. Write only your conscious thoughts as plain text. Do not write tool_call syntax or JSON.]"
+                        Content = "[Inner monologue phase — tools are no longer available for this tick. Write only your conscious thoughts as plain text. Do NOT attempt to call tools by writing JSON, XML, or function-call syntax — it will not work. Simply describe what you're thinking and feeling.]"
                     }
                 };
 

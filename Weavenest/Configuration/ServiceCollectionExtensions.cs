@@ -75,7 +75,6 @@ public static class ServiceCollectionExtensions
         services.AddScoped<IToolHandler, SupersedeMemoryToolHandler>();
         services.AddScoped<IToolHandler, WebSearchToolHandler>();
         services.AddScoped<IToolHandler, WebFetchToolHandler>();
-        services.AddScoped<IToolHandler, ContinueToolHandler>();
         services.AddScoped<ToolDispatchService>();
 
         // Background consciousness loop
