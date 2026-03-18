@@ -9,6 +9,7 @@ public class AgenticChatRequest
     public required List<OllamaChatMessage> History { get; set; }
     public required string UserMessage { get; set; }
     public bool WebSearchEnabled { get; set; } = true;
+    public bool DeepResearchEnabled { get; set; }
 }
 
 public class AgenticChatResult

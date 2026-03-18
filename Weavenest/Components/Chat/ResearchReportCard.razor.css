@@ -1,0 +1,9 @@
+.research-report-card {
+    width: 100%;
+    margin: 0.5rem 0;
+    border-left: 3px solid var(--mud-palette-primary);
+}
+
+.research-report-body {
+    line-height: 1.7;
+}

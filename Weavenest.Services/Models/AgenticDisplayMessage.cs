@@ -8,4 +8,5 @@ public class AgenticDisplayMessage
     public string? ModelName { get; set; }
     public DateTime Timestamp { get; set; } = DateTime.UtcNow;
     public bool IsEphemeral { get; set; }
+    public string? EventType { get; set; }
 }

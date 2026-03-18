@@ -42,7 +42,7 @@ public partial class Chat : IDisposable
             if (_displayMessages.Count > 0)
                 parts.Add($"{_displayMessages.Count(m => m.Role == "tool_call")} tool call(s) this session");
             if (_sessionWhitelistedDomains.Count > 0)
-                parts.Add($"{_sessionWhitelistedDomains.Count} approved site(s) this session");
+                parts.Add($"{_sessionWhitelistedDomains.Count} approved site(s)");
             return parts.Count > 0
                 ? string.Join(" · ", parts)
                 : "Session activity (tool calls & approved sites)";
@@ -55,6 +55,10 @@ public partial class Chat : IDisposable
     private string UserPromptTooltip => !string.IsNullOrWhiteSpace(Settings.UserPrompt)
         ? $"User memory active: \"{Settings.UserPrompt[..Math.Min(40, Settings.UserPrompt.Length)]}...\""
         : "Configure user memory";
+
+    /// <summary>Whether the current view is the session being processed (guards UI indicators).</summary>
+    private bool IsViewingProcessingSession =>
+        _isProcessing && SessionId.HasValue && SessionId.Value == _processingSessionId;
 
     private ChatSession? _currentSession;
     private List<string> _availableModels = [];
@@ -77,6 +81,13 @@ public partial class Chat : IDisposable
     private List<AgenticDisplayMessage> _displayMessages = [];
     private HashSet<string> _sessionWhitelistedDomains = new(StringComparer.OrdinalIgnoreCase);
 
+    // Deep research state — per-chat toggle, not a global service
+    private bool _deepResearchEnabled;
+    private bool _deepResearchComplete;
+    private bool _deepResearchWasActive; // captures the flag at send-time for the processing session
+    private bool _trustAllDomainsForResearchRun;
+    private ElementReference _researchFeedContainer;
+
     // Streaming mode state
     private bool _isStreaming;
     private ChatMessage _streamingMessage = new() { Role = ChatRole.Assistant, Content = "" };
@@ -85,6 +96,7 @@ public partial class Chat : IDisposable
 
     private void ToggleWebSearch() => _webSearchEnabled = !_webSearchEnabled;
     private void ToggleShowThinking() => _showThinking = !_showThinking;
+    private void ToggleDeepResearch() => _deepResearchEnabled = !_deepResearchEnabled;
 
     protected override async Task OnInitializedAsync()
     {
@@ -108,6 +120,7 @@ public partial class Chat : IDisposable
     {
         if (SessionId.HasValue)
         {
+            // If we're viewing the session that's currently being processed, keep the live state
             if (_isProcessing && SessionId.Value == _processingSessionId)
             {
                 _currentSession = _processingSession;
@@ -120,12 +133,44 @@ public partial class Chat : IDisposable
                 _selectedModel = _currentSession.ModelName ?? _selectedModel;
                 UpdateTokenEstimate();
                 await UpdateContextInfo();
+
+                // Load persisted whitelist for this session
+                await LoadWhitelistFromDb(SessionId.Value);
+            }
+
+            // When switching to a non-processing session, reset per-view state
+            // (the processing task keeps running; its state is tied to _processingSessionId)
+            if (!_isProcessing || SessionId.Value != _processingSessionId)
+            {
+                _displayMessages = [];
+                _deepResearchComplete = false;
+                _deepResearchEnabled = false;
+                _trustAllDomainsForResearchRun = false;
             }
         }
         else
         {
             _currentSession = null;
             _estimatedTokenCount = 0;
+            _sessionWhitelistedDomains = new(StringComparer.OrdinalIgnoreCase);
+            _trustAllDomainsForResearchRun = false;
+            _displayMessages = [];
+            _deepResearchComplete = false;
+            _deepResearchEnabled = false;
+        }
+    }
+
+    private async Task LoadWhitelistFromDb(Guid sessionId)
+    {
+        try
+        {
+            var domains = await ChatRepo.GetWhitelistedDomainsAsync(sessionId);
+            _sessionWhitelistedDomains = new HashSet<string>(domains, StringComparer.OrdinalIgnoreCase);
+        }
+        catch (Exception ex)
+        {
+            Logger.LogWarning(ex, "Failed to load whitelisted domains for session {SessionId}", sessionId);
+            _sessionWhitelistedDomains = new(StringComparer.OrdinalIgnoreCase);
         }
     }
 
@@ -229,6 +274,10 @@ public partial class Chat : IDisposable
                 : userText;
             _currentSession = await ChatRepo.CreateSessionAsync(userId.Value, title, _selectedModel);
 
+            // New session — clear any whitelist carried over from a previously-viewed session
+            _sessionWhitelistedDomains = new(StringComparer.OrdinalIgnoreCase);
+            _trustAllDomainsForResearchRun = false;
+
             _isProcessing = true;
             _processingSessionId = _currentSession.Id;
             _processingSession = _currentSession;
@@ -252,7 +301,10 @@ public partial class Chat : IDisposable
 
         _processingCts = new CancellationTokenSource();
 
-        if (_webSearchEnabled)
+        // Capture the deep research flag at send-time so it survives session switches
+        _deepResearchWasActive = _deepResearchEnabled;
+
+        if (_webSearchEnabled || _deepResearchEnabled)
             await SendMessageAgentic(activeSession, activeModel, userText);
         else
             await SendMessageStreaming(activeSession, activeModel, userText);
@@ -354,6 +406,11 @@ public partial class Chat : IDisposable
     private async Task SendMessageAgentic(ChatSession activeSession, string activeModel, string userText)
     {
         _displayMessages = [];
+        _deepResearchComplete = false;
+        _trustAllDomainsForResearchRun = false;
+
+        // Capture at send-time so it doesn't change if the user switches sessions
+        var deepResearchActive = _deepResearchWasActive;
         StateHasChanged();
 
         try
@@ -379,7 +436,8 @@ public partial class Chat : IDisposable
                 SystemPrompt = effectivePrompt,
                 History = history,
                 UserMessage = userText,
-                WebSearchEnabled = _webSearchEnabled
+                WebSearchEnabled = _webSearchEnabled,
+                DeepResearchEnabled = deepResearchActive
             };
 
             var result = await AgenticChat.RunAsync(
@@ -387,16 +445,18 @@ public partial class Chat : IDisposable
                 urlApprovalCallback: async url =>
                 {
                     var approved = false;
-                    await InvokeAsync(async () => approved = await UrlApprovalCallback(url));
+                    await InvokeAsync(async () => approved = await UrlApprovalCallback(url, activeSession.Id, deepResearchActive));
                     return approved;
                 },
-                onDisplayMessage: dm => InvokeAsync(() =>
+                onDisplayMessage: dm => InvokeAsync(async () =>
                 {
                     _displayMessages.Add(dm);
                     StateHasChanged();
                     try
                     {
-                        JSRuntime.InvokeVoidAsync("chatInterop.scrollToBottom", _messagesContainer);
+                        await JSRuntime.InvokeVoidAsync("chatInterop.scrollToBottom", _messagesContainer);
+                        if (deepResearchActive)
+                            await JSRuntime.InvokeVoidAsync("chatInterop.scrollToBottom", _researchFeedContainer);
                     }
                     catch { }
                 }),
@@ -431,6 +491,8 @@ public partial class Chat : IDisposable
             _processingSession = null;
             _processingCts?.Dispose();
             _processingCts = null;
+            if (deepResearchActive)
+                _deepResearchComplete = true;
             UpdateTokenEstimate();
             StateHasChanged();
         }
@@ -548,10 +610,13 @@ public partial class Chat : IDisposable
 
     private async Task OpenSessionInfoDialog()
     {
+        if (_currentSession is null) return;
+
         var parameters = new DialogParameters
         {
             ["ToolCalls"] = _displayMessages.ToList(),
-            ["WhitelistedDomains"] = _sessionWhitelistedDomains
+            ["WhitelistedDomains"] = _sessionWhitelistedDomains,
+            ["SessionId"] = _currentSession.Id
         };
 
         var options = new DialogOptions
@@ -561,13 +626,20 @@ public partial class Chat : IDisposable
             FullWidth = true
         };
 
-        await DialogService.ShowAsync<SessionInfoDialog>("Session Activity", parameters, options);
+        var dialog = await DialogService.ShowAsync<SessionInfoDialog>("Session Activity", parameters, options);
+        var result = await dialog.Result;
+
+        // Reload whitelist from DB after the dialog closes (user may have removed domains)
+        await LoadWhitelistFromDb(_currentSession.Id);
     }
 
-    private async Task<bool> UrlApprovalCallback(string url)
+    private async Task<bool> UrlApprovalCallback(string url, Guid sessionId, bool isDeepResearch)
     {
         try
         {
+            if (_trustAllDomainsForResearchRun)
+                return true;
+
             var uri = new Uri(url);
             var domain = uri.Host;
 
@@ -576,7 +648,8 @@ public partial class Chat : IDisposable
 
             var parameters = new DialogParameters
             {
-                ["Url"] = url
+                ["Url"] = url,
+                ["IsDeepResearch"] = isDeepResearch
             };
 
             var options = new DialogOptions
@@ -593,9 +666,20 @@ public partial class Chat : IDisposable
             if (result?.Canceled != false)
                 return false;
 
+            if (result.Data is string s && s == "trust_all")
+            {
+                _trustAllDomainsForResearchRun = true;
+                _sessionWhitelistedDomains.Add(domain);
+                await PersistWhitelistedDomain(sessionId, domain);
+                return true;
+            }
+
             var allowed = (bool)result.Data!;
             if (allowed)
+            {
                 _sessionWhitelistedDomains.Add(domain);
+                await PersistWhitelistedDomain(sessionId, domain);
+            }
 
             return allowed;
         }
@@ -603,6 +687,18 @@ public partial class Chat : IDisposable
         {
             Logger.LogError(ex, "URL approval callback failed for: {Url}", url);
             return false;
+        }
+    }
+
+    private async Task PersistWhitelistedDomain(Guid sessionId, string domain)
+    {
+        try
+        {
+            await ChatRepo.AddWhitelistedDomainAsync(sessionId, domain);
+        }
+        catch (Exception ex)
+        {
+            Logger.LogWarning(ex, "Failed to persist whitelisted domain {Domain} for session {SessionId}", domain, sessionId);
         }
     }
 
@@ -617,6 +713,19 @@ public partial class Chat : IDisposable
         var allText = string.Join(" ", _currentSession.Messages.Select(m => m.Content));
         _estimatedTokenCount = OllamaService.EstimateTokenCount(allText);
     }
+
+    private static string GetResearchEventIcon(string eventType) => eventType switch
+    {
+        "research_plan" => Icons.Material.Filled.Article,
+        "subquery_start" => Icons.Material.Filled.Search,
+        "search" => Icons.Material.Filled.TravelExplore,
+        "fetch_approved" => Icons.Material.Filled.Download,
+        "fetch_denied" => Icons.Material.Filled.Block,
+        "fetch_failed" => Icons.Material.Filled.Warning,
+        "gap_search" => Icons.Material.Filled.FindInPage,
+        "finalizing" => Icons.Material.Filled.Summarize,
+        _ => Icons.Material.Filled.Info
+    };
 
     public void Dispose()
     {

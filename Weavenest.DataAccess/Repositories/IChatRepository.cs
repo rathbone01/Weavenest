@@ -14,4 +14,10 @@ public interface IChatRepository
     Task<ChatSession> AddSessionToFolderAsync(Guid sessionId, Guid folderId);
     Task<ChatSession> RemoveSessionFromFolderAsync(Guid sessionId);
     Task<IReadOnlyList<ChatSession>> SearchSessionsAsync(Guid userId, string query);
+
+    // Whitelisted domains (per-session)
+    Task<IReadOnlyList<string>> GetWhitelistedDomainsAsync(Guid sessionId);
+    Task AddWhitelistedDomainAsync(Guid sessionId, string domain);
+    Task RemoveWhitelistedDomainAsync(Guid sessionId, string domain);
+    Task ClearWhitelistedDomainsAsync(Guid sessionId);
 }

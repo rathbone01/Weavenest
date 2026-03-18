@@ -1,5 +1,7 @@
 @using MudBlazor
+@using Weavenest.DataAccess.Repositories
 @using Weavenest.Services.Models
+@inject IChatRepository ChatRepo
 
 <MudDialog>
     <TitleContent>
@@ -9,11 +11,6 @@
         </MudText>
     </TitleContent>
     <DialogContent>
-        <MudAlert Severity="Severity.Info" Dense="true" Class="mb-4">
-            Tool call history and approved sites are <strong>reset at the end of each session</strong>.
-            Nothing shown here persists between conversations.
-        </MudAlert>
-
         <MudTabs Elevation="0" Rounded="false">
 
             <MudTabPanel Text="Tool Calls" Icon="@Icons.Material.Filled.Build"
@@ -52,19 +49,20 @@
             <MudTabPanel Text="Approved Sites" Icon="@Icons.Material.Filled.Shield"
                          BadgeData="@(WhitelistedDomains.Count > 0 ? WhitelistedDomains.Count : null)"
                          BadgeColor="Color.Success">
-                <MudAlert Severity="Severity.Warning" Dense="true" Class="mb-3">
-                    Only approve sites you recognise and trust. These approvals expire when your session ends.
+                <MudAlert Severity="Severity.Info" Dense="true" Class="mb-3">
+                    Approved sites are saved per chat. The assistant can fetch pages from these domains
+                    without prompting you again in this conversation.
                 </MudAlert>
                 @if (WhitelistedDomains.Count == 0)
                 {
                     <MudText Typo="Typo.body2" Style="opacity: 0.5;">
-                        No sites approved this session. You'll be asked before any page is fetched.
+                        No sites approved for this chat. You'll be asked before any page is fetched.
                     </MudText>
                 }
                 else
                 {
                     <MudText Typo="Typo.caption" Class="mb-2" Style="opacity: 0.5;">
-                        The assistant can fetch pages from these domains without prompting you again this session.
+                        The assistant can fetch pages from these domains without prompting you.
                     </MudText>
                     <div class="whitelist-list">
                         @foreach (var domain in WhitelistedDomains.ToList())
@@ -109,15 +107,20 @@
     [Parameter]
     public HashSet<string> WhitelistedDomains { get; set; } = [];
 
-    private void RemoveDomain(string domain)
+    [Parameter]
+    public Guid SessionId { get; set; }
+
+    private async Task RemoveDomain(string domain)
     {
         WhitelistedDomains.Remove(domain);
+        await ChatRepo.RemoveWhitelistedDomainAsync(SessionId, domain);
         StateHasChanged();
     }
 
-    private void ClearAllDomains()
+    private async Task ClearAllDomains()
     {
         WhitelistedDomains.Clear();
+        await ChatRepo.ClearWhitelistedDomainsAsync(SessionId);
         StateHasChanged();
     }
 

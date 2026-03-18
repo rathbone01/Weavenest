@@ -11,7 +11,36 @@ namespace Weavenest.Services;
 
 public class AgenticChatService : IAgenticChatService
 {
-    private const int MaxIterations = 10;
+    private const int DefaultMaxIterations = 10;
+    private const int DeepResearchMaxIterations = 50;
+
+    private static readonly string DeepResearchSystemPrompt =
+        """
+        You are a thorough research assistant. When given a research query you must follow this exact process:
+
+        Step 1 - Research Plan:
+        Before searching anything, output a structured research plan as a JSON object in this exact format:
+        {"plan": [{"subquery": "...", "rationale": "..."}, ...]}
+        Generate 5 to 8 sub-questions that cover different angles of the topic. Be comprehensive - include statistics, expert opinion, counterarguments, recent developments, and practical implications where relevant.
+
+        Step 2 - Systematic Research:
+        For each sub-question in the plan, use web_search to find relevant information. Evaluate the snippets returned. If a snippet is insufficient and a full page fetch would meaningfully improve the answer, use web_fetch on the most promising URL. Do not fetch every URL - only fetch when snippets are genuinely lacking.
+
+        Step 3 - Gap Analysis:
+        After completing all planned searches, evaluate whether any important angles remain uncovered. If yes, perform additional searches to fill those gaps. You may do up to 5 bonus searches beyond the plan.
+
+        Step 4 - Final Report:
+        Once research is complete, produce a structured markdown report with the following sections:
+        # [Report Title]
+        ## Summary
+        ## Findings
+        ### [Sub-heading per major finding]
+        ## Counterarguments and Limitations
+        ## Sources
+        List every URL that contributed to the report with its title.
+
+        Do not produce a conversational reply. Only produce the structured report. Be thorough and cite your sources inline using [1], [2] etc.
+        """;
 
     private static readonly string WebSearchSystemPrompt =
         """
@@ -94,9 +123,11 @@ public class AgenticChatService : IAgenticChatService
     {
         var messages = new List<OllamaChatMessage>();
 
-        var systemContent = request.WebSearchEnabled
-            ? WebSearchSystemPrompt + "\n\n" + request.SystemPrompt
-            : request.SystemPrompt;
+        var systemContent = request.DeepResearchEnabled
+            ? DeepResearchSystemPrompt + "\n\n" + request.SystemPrompt
+            : request.WebSearchEnabled
+                ? WebSearchSystemPrompt + "\n\n" + request.SystemPrompt
+                : request.SystemPrompt;
 
         messages.Add(new OllamaChatMessage
         {
@@ -112,13 +143,19 @@ public class AgenticChatService : IAgenticChatService
             Content = request.UserMessage
         });
 
-        var tools = request.WebSearchEnabled ? ToolDefinitions : null;
+        var tools = (request.WebSearchEnabled || request.DeepResearchEnabled) ? ToolDefinitions : null;
+        var maxIterations = request.DeepResearchEnabled ? DeepResearchMaxIterations : DefaultMaxIterations;
+        var planExtracted = false;
+        var toolNudgeCount = 0;
+        const int maxToolNudges = 3;
+        var hasCalledToolsAtLeastOnce = false;
 
-        for (var iteration = 0; iteration < MaxIterations; iteration++)
+        for (var iteration = 0; iteration < maxIterations; iteration++)
         {
             _logger.LogInformation(
                 "Agentic loop iteration {Iteration}/{Max} — model: {Model}, messages: {Count}, tools: {ToolsEnabled}",
-                iteration + 1, MaxIterations, request.ModelName, messages.Count, request.WebSearchEnabled);
+                iteration + 1, maxIterations, request.ModelName, messages.Count,
+                request.WebSearchEnabled || request.DeepResearchEnabled);
 
             var (response, error) = await CallOllamaAsync(request.ModelName, messages, tools, ct);
 
@@ -150,6 +187,65 @@ public class AgenticChatService : IAgenticChatService
 
             if (response!.Message.ToolCalls is null || response.Message.ToolCalls.Count == 0)
             {
+                // Deep research plan extraction: first text-only response before any tool calls
+                if (request.DeepResearchEnabled && !planExtracted && !hasCalledToolsAtLeastOnce)
+                {
+                    planExtracted = true;
+                    var planCount = TryExtractPlanCount(response.Message.Content);
+
+                    onDisplayMessage(new AgenticDisplayMessage
+                    {
+                        Role = "system",
+                        Content = planCount > 0
+                            ? $"Research plan generated with {planCount} sub-questions"
+                            : "Research plan generated",
+                        EventType = "research_plan",
+                        IsEphemeral = true
+                    });
+
+                    // Add the plan as an assistant message and nudge the model to begin tool use
+                    messages.Add(response.Message);
+                    messages.Add(new OllamaChatMessage
+                    {
+                        Role = "system",
+                        Content = "Good. Now execute your research plan step by step. " +
+                                  "You MUST call the web_search tool with your first sub-question now. " +
+                                  "Do not write any text — only make a tool call."
+                    });
+                    continue;
+                }
+
+                // After plan extraction, if the model still isn't calling tools, nudge it harder
+                if (request.DeepResearchEnabled && planExtracted && !hasCalledToolsAtLeastOnce
+                    && toolNudgeCount < maxToolNudges)
+                {
+                    toolNudgeCount++;
+                    _logger.LogWarning(
+                        "Deep research nudge {Count}/{Max} — model returned text instead of tool call",
+                        toolNudgeCount, maxToolNudges);
+
+                    // Don't keep the model's non-tool response — replace with a stronger nudge
+                    messages.Add(new OllamaChatMessage
+                    {
+                        Role = "system",
+                        Content = $"You must use the web_search tool now. Call web_search with a search query. " +
+                                  $"Do not respond with text. (Attempt {toolNudgeCount}/{maxToolNudges})"
+                    });
+                    continue;
+                }
+
+                // Normal termination: model is done calling tools (or gave up on nudges)
+                if (request.DeepResearchEnabled)
+                {
+                    onDisplayMessage(new AgenticDisplayMessage
+                    {
+                        Role = "system",
+                        Content = "Synthesizing report...",
+                        EventType = "finalizing",
+                        IsEphemeral = true
+                    });
+                }
+
                 var (content, thinking) = ThinkTagParser.Parse(response.Message.Content);
 
                 return new AgenticChatResult
@@ -160,6 +256,7 @@ public class AgenticChatService : IAgenticChatService
                 };
             }
 
+            hasCalledToolsAtLeastOnce = true;
             messages.Add(response.Message);
 
             foreach (var toolCall in response.Message.ToolCalls)
@@ -167,22 +264,32 @@ public class AgenticChatService : IAgenticChatService
                 var toolName = toolCall.Function.Name;
                 var args = toolCall.Function.Arguments;
 
+                var eventType = request.DeepResearchEnabled
+                    ? (toolName == "web_search" ? "search" : "fetch_approved")
+                    : null;
+
                 onDisplayMessage(new AgenticDisplayMessage
                 {
                     Role = "tool_call",
                     ToolName = toolName,
                     Content = FormatToolCallDisplay(toolName, args),
-                    IsEphemeral = true
+                    IsEphemeral = true,
+                    EventType = eventType
                 });
 
                 var toolResult = await ExecuteToolAsync(toolName, args, urlApprovalCallback, ct);
+
+                var resultEventType = request.DeepResearchEnabled
+                    ? DetermineResultEventType(toolName, toolResult)
+                    : null;
 
                 onDisplayMessage(new AgenticDisplayMessage
                 {
                     Role = "tool_result",
                     ToolName = toolName,
                     Content = TruncateForDisplay(toolResult, 300),
-                    IsEphemeral = true
+                    IsEphemeral = true,
+                    EventType = resultEventType
                 });
 
                 messages.Add(new OllamaChatMessage
@@ -193,12 +300,27 @@ public class AgenticChatService : IAgenticChatService
             }
         }
 
-        _logger.LogWarning("Agentic loop hit iteration cap ({Max}) — model: {Model}", MaxIterations, request.ModelName);
+        _logger.LogWarning("Agentic loop hit iteration cap ({Max}) — model: {Model}", maxIterations, request.ModelName);
+
+        var capMessage = request.DeepResearchEnabled
+            ? "You have completed your research phase (iteration limit reached). Now produce your final comprehensive structured markdown report based on all information gathered so far. Include a summary, detailed findings organized by subtopic, counterarguments and limitations, and a sources list with URLs."
+            : "You have reached the maximum number of tool call iterations. Please provide your best answer now based on the information gathered so far.";
+
+        if (request.DeepResearchEnabled)
+        {
+            onDisplayMessage(new AgenticDisplayMessage
+            {
+                Role = "system",
+                Content = "Synthesizing report...",
+                EventType = "finalizing",
+                IsEphemeral = true
+            });
+        }
 
         messages.Add(new OllamaChatMessage
         {
             Role = "system",
-            Content = "You have reached the maximum number of tool call iterations. Please provide your best answer now based on the information gathered so far."
+            Content = capMessage
         });
 
         var (finalResponse, finalError) = await CallOllamaAsync(request.ModelName, messages, null, ct);
@@ -328,5 +450,48 @@ public class AgenticChatService : IAgenticChatService
         if (text.Length <= maxLength)
             return text;
         return text[..maxLength] + "...";
+    }
+
+    private static int TryExtractPlanCount(string content)
+    {
+        try
+        {
+            // Look for a JSON block containing a "plan" array
+            var startIdx = content.IndexOf('{');
+            var endIdx = content.LastIndexOf('}');
+            if (startIdx < 0 || endIdx < 0 || endIdx <= startIdx)
+                return 0;
+
+            var jsonStr = content[startIdx..(endIdx + 1)];
+            using var doc = JsonDocument.Parse(jsonStr);
+            if (doc.RootElement.TryGetProperty("plan", out var planArray) &&
+                planArray.ValueKind == JsonValueKind.Array)
+            {
+                return planArray.GetArrayLength();
+            }
+        }
+        catch
+        {
+            // Plan parsing is best-effort
+        }
+
+        return 0;
+    }
+
+    private static string? DetermineResultEventType(string toolName, string result)
+    {
+        if (toolName == "web_search")
+            return "search";
+
+        if (toolName == "web_fetch")
+        {
+            if (result.StartsWith("[The user denied"))
+                return "fetch_denied";
+            if (result.StartsWith("[Fetch failed"))
+                return "fetch_failed";
+            return "fetch_approved";
+        }
+
+        return null;
     }
 }

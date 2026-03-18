@@ -12,6 +12,7 @@ public class WeavenestDbContext : DbContext
     public DbSet<ChatSession> Sessions => Set<ChatSession>();
     public DbSet<ChatMessage> Messages => Set<ChatMessage>();
     public DbSet<Folder> Folders => Set<Folder>();
+    public DbSet<WhitelistedDomain> WhitelistedDomains => Set<WhitelistedDomain>();
 
     protected override void OnModelCreating(ModelBuilder modelBuilder)
     {

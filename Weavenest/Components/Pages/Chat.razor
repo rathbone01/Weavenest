@@ -79,29 +79,92 @@
         {
             <ChatBubble Message="@_streamingMessage" IsStreaming="true" ShowThinking="_showThinking" />
         }
-        @foreach (var dm in _displayMessages)
+        @if (IsViewingProcessingSession && _deepResearchWasActive && _displayMessages.Any(dm => dm.EventType is not null))
         {
-            @if (dm.Role is "tool_call" or "tool_result")
+            @if (_deepResearchComplete)
             {
-                <ToolMessageBubble Message="dm" />
+                <MudExpansionPanels Class="my-2">
+                    <MudExpansionPanel Text="Research Activity Log"
+                                       Icon="@Icons.Material.Filled.Science"
+                                       Expanded="false">
+                        <MudList T="string" Dense="true">
+                            @foreach (var dm in _displayMessages.Where(d => d.EventType is not null))
+                            {
+                                <MudListItem T="string" Icon="@GetResearchEventIcon(dm.EventType!)"
+                                             IconColor="Color.Primary">
+                                    <div class="d-flex align-center gap-2">
+                                        <MudText Typo="Typo.caption" Style="opacity: 0.5; white-space: nowrap;">
+                                            @dm.Timestamp.ToLocalTime().ToString("h:mm:ss tt")
+                                        </MudText>
+                                        <MudText Typo="Typo.body2">@dm.Content</MudText>
+                                    </div>
+                                </MudListItem>
+                            }
+                        </MudList>
+                    </MudExpansionPanel>
+                </MudExpansionPanels>
             }
-            else if (dm.Role == "assistant")
+            else
             {
-                <ChatBubble Message="@(new ChatMessage
+                <MudPaper Class="research-feed-panel my-2" Elevation="1">
+                    <div class="research-feed-header">
+                        <MudIcon Icon="@Icons.Material.Filled.Science" Size="Size.Small" Color="Color.Warning" />
+                        <MudText Typo="Typo.subtitle2">Research in Progress</MudText>
+                        <MudSpacer />
+                        <MudProgressCircular Size="Size.Small" Indeterminate="true" Color="Color.Primary" />
+                    </div>
+                    <div class="research-feed-list" @ref="_researchFeedContainer">
+                        <MudList T="string" Dense="true">
+                            @foreach (var dm in _displayMessages.Where(d => d.EventType is not null))
+                            {
+                                <MudListItem T="string" Icon="@GetResearchEventIcon(dm.EventType!)"
+                                             IconColor="Color.Primary">
+                                    <div class="d-flex align-center gap-2">
+                                        <MudText Typo="Typo.caption" Style="opacity: 0.5; white-space: nowrap;">
+                                            @dm.Timestamp.ToLocalTime().ToString("h:mm:ss tt")
+                                        </MudText>
+                                        <MudText Typo="Typo.body2">@dm.Content</MudText>
+                                    </div>
+                                </MudListItem>
+                            }
+                        </MudList>
+                    </div>
+                </MudPaper>
+            }
+        }
+        @if (!IsViewingProcessingSession || !_deepResearchWasActive)
+        {
+            @foreach (var dm in _displayMessages)
+            {
+                @if (dm.Role is "tool_call" or "tool_result")
                 {
-                    Role = ChatRole.Assistant,
-                    Content = dm.Content,
-                    ModelName = dm.ModelName,
-                    Timestamp = dm.Timestamp
-                })" ShowThinking="_showThinking" />
+                    <ToolMessageBubble Message="dm" />
+                }
+                else if (dm.Role == "assistant")
+                {
+                    <ChatBubble Message="@(new ChatMessage
+                    {
+                        Role = ChatRole.Assistant,
+                        Content = dm.Content,
+                        ModelName = dm.ModelName,
+                        Timestamp = dm.Timestamp
+                    })" ShowThinking="_showThinking" />
+                }
             }
         }
         @{var deferred = GetDeferredAssistantMessage();}
         @if (deferred is not null)
         {
-            <ChatBubble Message="deferred" ShowThinking="_showThinking" />
+            @if (_deepResearchComplete)
+            {
+                <ResearchReportCard Content="@deferred.Content" Timestamp="@deferred.Timestamp" />
+            }
+            else
+            {
+                <ChatBubble Message="deferred" ShowThinking="_showThinking" />
+            }
         }
-        @if (_isProcessing && !_isStreaming)
+        @if (IsViewingProcessingSession && !_isStreaming && !(_deepResearchWasActive && _displayMessages.Any(dm => dm.EventType is not null)))
         {
             <div class="processing-indicator">
                 <MudProgressCircular Size="Size.Small" Indeterminate="true" Color="Color.Primary" />
@@ -121,6 +184,18 @@
     </div>
 
     <div class="chat-input-area">
+        <div class="chat-input-chips">
+            <MudChip T="string"
+                     Color="@(_deepResearchEnabled ? Color.Warning : Color.Default)"
+                     Variant="@(_deepResearchEnabled ? Variant.Filled : Variant.Outlined)"
+                     Size="Size.Small"
+                     Icon="@Icons.Material.Filled.Science"
+                     OnClick="ToggleDeepResearch"
+                     Disabled="@(_isProcessing || !_modelSupportsTools)"
+                     Class="deep-research-chip">
+                Deep Research
+            </MudChip>
+        </div>
         <MudTextField @bind-Value="_userInput"
                       Placeholder="Type your message... (Shift+Enter for new line)"
                       Variant="Variant.Outlined"

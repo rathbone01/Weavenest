@@ -109,4 +109,34 @@ public class InMemoryChatRepository : IChatRepository
             .ToList() as IReadOnlyList<ChatSession>;
         return Task.FromResult(results!);
     }
+
+    // In-memory whitelist storage keyed by session ID
+    private readonly ConcurrentDictionary<Guid, HashSet<string>> _whitelists = new();
+
+    public Task<IReadOnlyList<string>> GetWhitelistedDomainsAsync(Guid sessionId)
+    {
+        if (_whitelists.TryGetValue(sessionId, out var domains))
+            return Task.FromResult<IReadOnlyList<string>>(domains.ToList());
+        return Task.FromResult<IReadOnlyList<string>>([]);
+    }
+
+    public Task AddWhitelistedDomainAsync(Guid sessionId, string domain)
+    {
+        var set = _whitelists.GetOrAdd(sessionId, _ => new HashSet<string>(StringComparer.OrdinalIgnoreCase));
+        set.Add(domain);
+        return Task.CompletedTask;
+    }
+
+    public Task RemoveWhitelistedDomainAsync(Guid sessionId, string domain)
+    {
+        if (_whitelists.TryGetValue(sessionId, out var set))
+            set.Remove(domain);
+        return Task.CompletedTask;
+    }
+
+    public Task ClearWhitelistedDomainsAsync(Guid sessionId)
+    {
+        _whitelists.TryRemove(sessionId, out _);
+        return Task.CompletedTask;
+    }
 }

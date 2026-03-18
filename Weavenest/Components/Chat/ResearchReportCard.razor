@@ -1,0 +1,35 @@
+@using Markdig
+
+<MudCard Class="research-report-card" Elevation="2">
+    <MudCardHeader>
+        <CardHeaderAvatar>
+            <MudIcon Icon="@Icons.Material.Filled.Science" Color="Color.Primary" />
+        </CardHeaderAvatar>
+        <CardHeaderContent>
+            <MudText Typo="Typo.h6">Research Report</MudText>
+            <MudText Typo="Typo.caption" Style="opacity: 0.6;">
+                @Timestamp.ToLocalTime().ToString("MMM d, yyyy h:mm tt")
+            </MudText>
+        </CardHeaderContent>
+    </MudCardHeader>
+    <MudCardContent>
+        <div class="markdown-body research-report-body">
+            @((MarkupString)RenderMarkdown(Content))
+        </div>
+    </MudCardContent>
+</MudCard>
+
+@code {
+    [Parameter, EditorRequired]
+    public string Content { get; set; } = "";
+
+    [Parameter]
+    public DateTime Timestamp { get; set; }
+
+    private static readonly MarkdownPipeline _pipeline = new MarkdownPipelineBuilder()
+        .UseAdvancedExtensions()
+        .Build();
+
+    private static string RenderMarkdown(string content) =>
+        Markdown.ToHtml(content, _pipeline);
+}

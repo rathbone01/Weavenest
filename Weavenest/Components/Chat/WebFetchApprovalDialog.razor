@@ -18,6 +18,11 @@
         <MudText Typo="Typo.body2" Class="ml-2" Style="word-break: break-all; opacity: 0.85;">
             @Url
         </MudText>
+        @if (IsDeepResearch)
+        {
+            <MudCheckBox @bind-Value="_trustAll" Color="Color.Warning" Class="mt-3"
+                         Label="Trust all domains for this research run" />
+        }
     </DialogContent>
     <DialogActions>
         <MudButton OnClick="Deny" Color="Color.Default" Variant="Variant.Text">Deny</MudButton>
@@ -34,7 +39,13 @@
     [Parameter]
     public string Url { get; set; } = "";
 
+    [Parameter]
+    public bool IsDeepResearch { get; set; }
+
+    private bool _trustAll;
+
     private void Deny() => MudDialog.Close(DialogResult.Ok(false));
 
-    private void AllowForSession() => MudDialog.Close(DialogResult.Ok(true));
+    private void AllowForSession() => MudDialog.Close(
+        _trustAll ? DialogResult.Ok("trust_all") : DialogResult.Ok(true));
 }

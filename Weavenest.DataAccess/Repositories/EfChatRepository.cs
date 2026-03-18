@@ -143,4 +143,59 @@ public class EfChatRepository(IDbContextFactory<WeavenestDbContext> contextFacto
             .OrderByDescending(s => s.UpdatedAt)
             .ToListAsync();
     }
+
+    public async Task<IReadOnlyList<string>> GetWhitelistedDomainsAsync(Guid sessionId)
+    {
+        await using var context = await contextFactory.CreateDbContextAsync();
+
+        return await context.WhitelistedDomains
+            .Where(w => w.SessionId == sessionId)
+            .OrderBy(w => w.CreatedAt)
+            .Select(w => w.Domain)
+            .ToListAsync();
+    }
+
+    public async Task AddWhitelistedDomainAsync(Guid sessionId, string domain)
+    {
+        await using var context = await contextFactory.CreateDbContextAsync();
+
+        var exists = await context.WhitelistedDomains
+            .AnyAsync(w => w.SessionId == sessionId && w.Domain == domain);
+
+        if (exists) return;
+
+        context.WhitelistedDomains.Add(new WhitelistedDomain
+        {
+            SessionId = sessionId,
+            Domain = domain
+        });
+        await context.SaveChangesAsync();
+    }
+
+    public async Task RemoveWhitelistedDomainAsync(Guid sessionId, string domain)
+    {
+        await using var context = await contextFactory.CreateDbContextAsync();
+
+        var entry = await context.WhitelistedDomains
+            .FirstOrDefaultAsync(w => w.SessionId == sessionId && w.Domain == domain);
+
+        if (entry is null) return;
+
+        context.WhitelistedDomains.Remove(entry);
+        await context.SaveChangesAsync();
+    }
+
+    public async Task ClearWhitelistedDomainsAsync(Guid sessionId)
+    {
+        await using var context = await contextFactory.CreateDbContextAsync();
+
+        var entries = await context.WhitelistedDomains
+            .Where(w => w.SessionId == sessionId)
+            .ToListAsync();
+
+        if (entries.Count == 0) return;
+
+        context.WhitelistedDomains.RemoveRange(entries);
+        await context.SaveChangesAsync();
+    }
 }
