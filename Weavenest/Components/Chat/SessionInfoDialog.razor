@@ -1,0 +1,125 @@
+@using MudBlazor
+@using Weavenest.Services.Models
+
+<MudDialog>
+    <TitleContent>
+        <MudText Typo="Typo.h6">
+            <MudIcon Icon="@Icons.Material.Filled.ManageHistory" Class="mr-2" />
+            Session Activity
+        </MudText>
+    </TitleContent>
+    <DialogContent>
+        <MudAlert Severity="Severity.Info" Dense="true" Class="mb-4">
+            Tool call history and approved sites are <strong>reset at the end of each session</strong>.
+            Nothing shown here persists between conversations.
+        </MudAlert>
+
+        <MudTabs Elevation="0" Rounded="false">
+
+            <MudTabPanel Text="Tool Calls" Icon="@Icons.Material.Filled.Build"
+                         BadgeData="@(ToolCalls.Count > 0 ? ToolCalls.Count : null)"
+                         BadgeColor="Color.Primary">
+                @if (ToolCalls.Count == 0)
+                {
+                    <MudText Typo="Typo.body2" Style="opacity: 0.5;">
+                        No tool calls yet this session.
+                    </MudText>
+                }
+                else
+                {
+                    <MudText Typo="Typo.caption" Class="mb-2" Style="opacity: 0.5;">
+                        All web searches and page fetches made by the assistant this session.
+                    </MudText>
+                    <div class="tool-call-list">
+                        @foreach (var call in ToolCalls.Where(m => m.Role == "tool_call"))
+                        {
+                            <div class="tool-call-item">
+                                <MudIcon Icon="@(call.ToolName == "web_search" ? Icons.Material.Filled.Search : Icons.Material.Filled.OpenInBrowser)"
+                                         Size="Size.Small" Class="tool-call-icon" />
+                                <div class="tool-call-text">
+                                    <span class="tool-call-label">
+                                        @(call.ToolName == "web_search" ? "Web Search" : "Page Fetch")
+                                    </span>
+                                    <span class="tool-call-content">@call.Content</span>
+                                </div>
+                                <span class="tool-call-time">@call.Timestamp.ToLocalTime().ToString("h:mm tt")</span>
+                            </div>
+                        }
+                    </div>
+                }
+            </MudTabPanel>
+
+            <MudTabPanel Text="Approved Sites" Icon="@Icons.Material.Filled.Shield"
+                         BadgeData="@(WhitelistedDomains.Count > 0 ? WhitelistedDomains.Count : null)"
+                         BadgeColor="Color.Success">
+                <MudAlert Severity="Severity.Warning" Dense="true" Class="mb-3">
+                    Only approve sites you recognise and trust. These approvals expire when your session ends.
+                </MudAlert>
+                @if (WhitelistedDomains.Count == 0)
+                {
+                    <MudText Typo="Typo.body2" Style="opacity: 0.5;">
+                        No sites approved this session. You'll be asked before any page is fetched.
+                    </MudText>
+                }
+                else
+                {
+                    <MudText Typo="Typo.caption" Class="mb-2" Style="opacity: 0.5;">
+                        The assistant can fetch pages from these domains without prompting you again this session.
+                    </MudText>
+                    <div class="whitelist-list">
+                        @foreach (var domain in WhitelistedDomains.ToList())
+                        {
+                            <div class="whitelist-item">
+                                <MudIcon Icon="@Icons.Material.Filled.Language" Size="Size.Small" Class="whitelist-icon" />
+                                <span class="whitelist-domain">@domain</span>
+                                <MudTooltip Text="Remove — you'll be prompted again before fetching from this domain">
+                                    <MudIconButton Icon="@Icons.Material.Filled.RemoveCircleOutline"
+                                                   Size="Size.Small"
+                                                   Color="Color.Error"
+                                                   OnClick="@(() => RemoveDomain(domain))" />
+                                </MudTooltip>
+                            </div>
+                        }
+                    </div>
+                    <MudButton StartIcon="@Icons.Material.Filled.ClearAll"
+                               Color="Color.Error"
+                               Variant="Variant.Text"
+                               Size="Size.Small"
+                               Class="mt-2"
+                               OnClick="ClearAllDomains">
+                        Remove all approved sites
+                    </MudButton>
+                }
+            </MudTabPanel>
+
+        </MudTabs>
+    </DialogContent>
+    <DialogActions>
+        <MudButton OnClick="Close" Variant="Variant.Text">Close</MudButton>
+    </DialogActions>
+</MudDialog>
+
+@code {
+    [CascadingParameter]
+    private IMudDialogInstance MudDialog { get; set; } = default!;
+
+    [Parameter]
+    public List<AgenticDisplayMessage> ToolCalls { get; set; } = [];
+
+    [Parameter]
+    public HashSet<string> WhitelistedDomains { get; set; } = [];
+
+    private void RemoveDomain(string domain)
+    {
+        WhitelistedDomains.Remove(domain);
+        StateHasChanged();
+    }
+
+    private void ClearAllDomains()
+    {
+        WhitelistedDomains.Clear();
+        StateHasChanged();
+    }
+
+    private void Close() => MudDialog.Close();
+}

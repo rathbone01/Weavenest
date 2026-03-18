@@ -34,6 +34,24 @@ public partial class Chat : IDisposable
             await SendMessage();
     }
 
+    private string SessionActivityTooltip
+    {
+        get
+        {
+            var parts = new List<string>();
+            if (_displayMessages.Count > 0)
+                parts.Add($"{_displayMessages.Count(m => m.Role == "tool_call")} tool call(s) this session");
+            if (_sessionWhitelistedDomains.Count > 0)
+                parts.Add($"{_sessionWhitelistedDomains.Count} approved site(s) this session");
+            return parts.Count > 0
+                ? string.Join(" · ", parts)
+                : "Session activity (tool calls & approved sites)";
+        }
+    }
+
+    private int SessionActivityBadge =>
+        _displayMessages.Count(m => m.Role == "tool_call") + _sessionWhitelistedDomains.Count;
+
     private string UserPromptTooltip => !string.IsNullOrWhiteSpace(Settings.UserPrompt)
         ? $"User memory active: \"{Settings.UserPrompt[..Math.Min(40, Settings.UserPrompt.Length)]}...\""
         : "Configure user memory";
@@ -391,8 +409,6 @@ public partial class Chat : IDisposable
                 modelName: activeModel,
                 thinking: result.Thinking);
             activeSession.Messages.Add(assistantMsg);
-
-            _displayMessages.Clear();
         }
         catch (OperationCanceledException)
         {
@@ -402,13 +418,11 @@ public partial class Chat : IDisposable
         {
             Logger.LogError(ex, "Ollama unreachable — model: {Model}, session: {SessionId}", activeModel, activeSession.Id);
             _ollamaError = $"Could not connect to Ollama: {ex.Message}. Make sure Ollama is running locally.";
-            _displayMessages.Clear();
         }
         catch (Exception ex)
         {
             Logger.LogError(ex, "Chat error — model: {Model}, session: {SessionId}", activeModel, activeSession.Id);
             _ollamaError = $"Error: {ex.Message}";
-            _displayMessages.Clear();
         }
         finally
         {
@@ -430,6 +444,26 @@ public partial class Chat : IDisposable
             effectivePrompt = $"{effectivePrompt}\n\n## Persistent User Context\nThe following is background context about this user, provided by the system. It was not said by the user in this conversation — treat it as reference information to inform your responses:\n\n{Settings.UserPrompt}";
         }
         return effectivePrompt.Replace("{{currentDateTime}}", DateTime.Now.ToString());
+    }
+
+    private IEnumerable<ChatMessage> GetSessionMessagesForRender()
+    {
+        if (_currentSession is null) return [];
+        var msgs = _currentSession.Messages;
+
+        if (_displayMessages.Count > 0 && msgs.Count > 0 && msgs[^1].Role == ChatRole.Assistant)
+            return msgs.Take(msgs.Count - 1);
+
+        return msgs;
+    }
+
+    private ChatMessage? GetDeferredAssistantMessage()
+    {
+        if (_displayMessages.Count == 0 || _currentSession is null) return null;
+        var msgs = _currentSession.Messages;
+        if (msgs.Count > 0 && msgs[^1].Role == ChatRole.Assistant)
+            return msgs[^1];
+        return null;
     }
 
     private void RouteStreamingToken(string token)
@@ -510,6 +544,24 @@ public partial class Chat : IDisposable
                 _streamingMessage.Thinking = null;
             }
         }
+    }
+
+    private async Task OpenSessionInfoDialog()
+    {
+        var parameters = new DialogParameters
+        {
+            ["ToolCalls"] = _displayMessages.ToList(),
+            ["WhitelistedDomains"] = _sessionWhitelistedDomains
+        };
+
+        var options = new DialogOptions
+        {
+            CloseButton = true,
+            MaxWidth = MaxWidth.Small,
+            FullWidth = true
+        };
+
+        await DialogService.ShowAsync<SessionInfoDialog>("Session Activity", parameters, options);
     }
 
     private async Task<bool> UrlApprovalCallback(string url)

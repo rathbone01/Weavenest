@@ -1,0 +1,78 @@
+.tool-call-list {
+    display: flex;
+    flex-direction: column;
+    gap: 0.4rem;
+}
+
+.tool-call-item {
+    display: flex;
+    align-items: flex-start;
+    gap: 0.5rem;
+    padding: 0.4rem 0.5rem;
+    border-radius: 6px;
+    background: rgba(255, 255, 255, 0.03);
+    border: 1px solid rgba(255, 255, 255, 0.06);
+}
+
+.tool-call-icon {
+    opacity: 0.5;
+    flex-shrink: 0;
+    margin-top: 2px;
+}
+
+.tool-call-text {
+    display: flex;
+    flex-direction: column;
+    flex: 1;
+    min-width: 0;
+}
+
+.tool-call-label {
+    font-size: 0.7rem;
+    font-weight: 600;
+    text-transform: uppercase;
+    letter-spacing: 0.05em;
+    opacity: 0.45;
+    margin-bottom: 1px;
+}
+
+.tool-call-content {
+    font-size: 0.82rem;
+    opacity: 0.8;
+    word-break: break-word;
+}
+
+.tool-call-time {
+    font-size: 0.7rem;
+    opacity: 0.3;
+    flex-shrink: 0;
+    margin-top: 2px;
+}
+
+.whitelist-list {
+    display: flex;
+    flex-direction: column;
+    gap: 0.3rem;
+}
+
+.whitelist-item {
+    display: flex;
+    align-items: center;
+    gap: 0.5rem;
+    padding: 0.3rem 0.5rem;
+    border-radius: 6px;
+    background: rgba(255, 255, 255, 0.03);
+    border: 1px solid rgba(255, 255, 255, 0.06);
+}
+
+.whitelist-icon {
+    opacity: 0.4;
+    flex-shrink: 0;
+}
+
+.whitelist-domain {
+    flex: 1;
+    font-size: 0.85rem;
+    font-family: monospace;
+    opacity: 0.85;
+}

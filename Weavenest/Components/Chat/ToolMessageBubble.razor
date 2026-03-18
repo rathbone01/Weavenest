@@ -23,6 +23,16 @@
         : Icons.Material.Filled.Description;
 
     private string HeaderText => Message.Role == "tool_call"
-        ? $"Calling {Message.ToolName}..."
-        : $"Result from {Message.ToolName}";
+        ? Message.ToolName switch
+        {
+            "web_search" => "Web Search",
+            "web_fetch" => "Fetching Page",
+            _ => $"Calling {Message.ToolName}..."
+        }
+        : Message.ToolName switch
+        {
+            "web_search" => "Search Results",
+            "web_fetch" => "Page Content",
+            _ => $"Result from {Message.ToolName}"
+        };
 }

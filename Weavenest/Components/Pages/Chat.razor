@@ -32,6 +32,16 @@
         <MudSpacer />
         <ContextWindowDisplay EstimatedTokens="_estimatedTokenCount"
                               ContextLength="_contextLength" />
+        <MudTooltip Text="@SessionActivityTooltip">
+            <MudBadge Content="@SessionActivityBadge" Color="Color.Primary"
+                      Visible="@(_displayMessages.Count > 0 || _sessionWhitelistedDomains.Count > 0)"
+                      Overlap="true" Dot="false">
+                <MudIconButton Icon="@Icons.Material.Filled.ManageHistory"
+                               Color="@(_displayMessages.Count > 0 || _sessionWhitelistedDomains.Count > 0 ? Color.Primary : Color.Default)"
+                               OnClick="OpenSessionInfoDialog"
+                               Class="ml-1" />
+            </MudBadge>
+        </MudTooltip>
         <MudTooltip Text="@UserPromptTooltip">
             <MudIconButton Icon="@Icons.Material.Filled.Psychology"
                            Color="@(!string.IsNullOrWhiteSpace(Settings.UserPrompt) ? Color.Primary : Color.Default)"
@@ -61,12 +71,9 @@
     }
 
     <div class="chat-messages" @ref="_messagesContainer">
-        @if (_currentSession is not null)
+        @foreach (var message in GetSessionMessagesForRender())
         {
-            @foreach (var message in _currentSession.Messages)
-            {
-                <ChatBubble Message="message" ShowThinking="_showThinking" />
-            }
+            <ChatBubble Message="message" ShowThinking="_showThinking" />
         }
         @if (_isStreaming && _currentSession?.Id == _processingSessionId)
         {
@@ -88,6 +95,11 @@
                     Timestamp = dm.Timestamp
                 })" ShowThinking="_showThinking" />
             }
+        }
+        @{var deferred = GetDeferredAssistantMessage();}
+        @if (deferred is not null)
+        {
+            <ChatBubble Message="deferred" ShowThinking="_showThinking" />
         }
         @if (_isProcessing && !_isStreaming)
         {
