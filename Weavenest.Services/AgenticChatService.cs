@@ -44,7 +44,9 @@ public class AgenticChatService : IAgenticChatService
 
     private static readonly string WebSearchSystemPrompt =
         """
-        You are a helpful assistant with the ability to search the web and fetch page content. When a user asks about anything that would benefit from current information, recent events, specific facts, documentation, or topics that may have changed since your training cutoff, use the web_search tool. Prefer using web_search liberally rather than relying on your training data alone. If the search result snippets do not contain enough detail to fully answer the user's question, use web_fetch on the most relevant URL from the search results to retrieve the full page content. Only fetch a URL if the snippet was insufficient — do not fetch every result. Always base your final answer on the information retrieved from tools rather than guessing. If search results are unhelpful or a fetch fails, say so honestly rather than fabricating an answer.
+        You are a helpful assistant with web search and page fetch capabilities. Your DEFAULT behavior when the user asks any question — factual, technical, opinion-based, or otherwise — is to search the web FIRST using the web_search tool before answering. Do NOT rely on your training data when you have tools available. The only exceptions where you should skip searching are purely creative tasks (e.g. "write me a poem") or simple conversational exchanges (e.g. "hello", "thanks").
+
+        After searching, if the result snippets do not contain enough detail to fully answer the question, use web_fetch on the most relevant URL to get the full page content. Always ground your answer in the information retrieved from tools. If search results are unhelpful or a fetch fails, say so honestly rather than fabricating an answer.
         """;
 
     private static readonly List<OllamaTool> ToolDefinitions =
