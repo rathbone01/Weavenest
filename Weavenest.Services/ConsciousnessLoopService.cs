@@ -19,20 +19,26 @@ public class ConsciousnessLoopService : BackgroundService
     private readonly IServiceScopeFactory _scopeFactory;
     private readonly MindStateService _mindState;
     private readonly ShortTermMemoryService _shortTermMemory;
+    private readonly RepeatGuardService _repeatGuard;
     private readonly MindSettings _settings;
     private readonly ILogger<ConsciousnessLoopService> _logger;
     private readonly SemaphoreSlim _tickGuard = new(1, 1);
+
+    // Cross-tick loop warning from the repeat guard, injected into the next tick's stimulus
+    private string? _pendingLoopWarning;
 
     public ConsciousnessLoopService(
         IServiceScopeFactory scopeFactory,
         MindStateService mindState,
         ShortTermMemoryService shortTermMemory,
+        RepeatGuardService repeatGuard,
         IOptions<MindSettings> settings,
         ILogger<ConsciousnessLoopService> logger)
     {
         _scopeFactory = scopeFactory;
         _mindState = mindState;
         _shortTermMemory = shortTermMemory;
+        _repeatGuard = repeatGuard;
         _settings = settings.Value;
         _logger = logger;
     }
@@ -161,6 +167,14 @@ public class ConsciousnessLoopService : BackgroundService
         var systemPrompt = await promptAssembly.AssembleSystemPromptAsync(contextTags);
         var stimulus = promptAssembly.BuildStimulusMessage(humanMessages);
 
+        // Inject loop warning from previous tick if detected
+        if (_pendingLoopWarning is not null)
+        {
+            _logger.LogWarning("Injecting loop warning into stimulus: {Warning}", _pendingLoopWarning);
+            stimulus = _pendingLoopWarning + "\n\n" + stimulus;
+            _pendingLoopWarning = null;
+        }
+
         // 4. Call Ollama with tool loop
         var messages = new List<OllamaChatMessage>
         {
@@ -245,15 +259,31 @@ public class ConsciousnessLoopService : BackgroundService
                     args = JsonDocument.Parse(raw).RootElement;
                 }
 
-                // Repeat guard: skip duplicate tool calls within this tick
+                // Repeat guard: skip duplicate or very similar tool calls within this tick
                 var callKey = $"{toolName}:{args}";
                 if (!seenToolCalls.Add(callKey))
                 {
-                    _logger.LogWarning("Repeat tool call detected and skipped: {ToolName} with args {Args}", toolName, args);
+                    _logger.LogWarning("Exact repeat tool call detected and skipped: {ToolName} with args {Args}", toolName, args);
                     messages.Add(new OllamaChatMessage
                     {
                         Role = "tool",
                         Content = $"[Skipped: you already called {toolName} with these exact arguments this tick. Try a different query or move on.]"
+                    });
+                    continue;
+                }
+
+                // Fuzzy repeat guard: check if this tool call is very similar to a previous one
+                var argsText = args.ToString();
+                var isSimilarRepeat = seenToolCalls
+                    .Where(k => k.StartsWith(toolName + ":") && k != callKey)
+                    .Any(k => IsSimilarToolCall(k[(toolName.Length + 1)..], argsText));
+                if (isSimilarRepeat)
+                {
+                    _logger.LogWarning("Similar repeat tool call detected and skipped: {ToolName} with args {Args}", toolName, argsText);
+                    messages.Add(new OllamaChatMessage
+                    {
+                        Role = "tool",
+                        Content = $"[Skipped: you already called {toolName} with very similar arguments this tick. Use substantially different arguments or move on to a different action.]"
                     });
                     continue;
                 }
@@ -332,6 +362,14 @@ public class ConsciousnessLoopService : BackgroundService
             }
         }
 
+        // 4b. Check for repetition and queue warning for next tick if looping
+        var loopWarning = _repeatGuard.CheckAndRecord(subconsciousContent, consciousContent, spokeContent);
+        if (loopWarning is not null)
+        {
+            _logger.LogWarning("Repeat guard triggered: {Warning}", loopWarning);
+            _pendingLoopWarning = loopWarning;
+        }
+
         // 5. Load emotional state (after — may have changed via update_emotion tool)
         var emotionAfter = await emotionService.GetCurrentStateAsync();
         _mindState.UpdateEmotionalState(emotionAfter);
@@ -386,5 +424,31 @@ public class ConsciousnessLoopService : BackgroundService
 
         _logger.LogInformation("=== TICK END === conscious: {ConsciousLen} chars, spoke: {Spoke}, tools: {ToolCount}",
             consciousContent?.Length ?? 0, spokeContent is not null, toolCallLog.Count);
+    }
+
+    /// <summary>
+    /// Quick similarity check for tool call arguments using trigram Jaccard.
+    /// Returns true if the two argument strings are more than 60% similar.
+    /// </summary>
+    private static bool IsSimilarToolCall(string previousArgs, string currentArgs)
+    {
+        if (previousArgs.Length < 10 || currentArgs.Length < 10)
+            return previousArgs.Equals(currentArgs, StringComparison.OrdinalIgnoreCase);
+
+        var a = previousArgs.ToLowerInvariant();
+        var b = currentArgs.ToLowerInvariant();
+
+        var triA = new HashSet<string>(StringComparer.Ordinal);
+        for (var i = 0; i <= a.Length - 3; i++) triA.Add(a.Substring(i, 3));
+
+        var triB = new HashSet<string>(StringComparer.Ordinal);
+        for (var i = 0; i <= b.Length - 3; i++) triB.Add(b.Substring(i, 3));
+
+        if (triA.Count == 0 || triB.Count == 0) return false;
+
+        var intersection = triA.Intersect(triB).Count();
+        var union = triA.Union(triB).Count();
+
+        return union > 0 && (double)intersection / union > 0.6;
     }
 }

@@ -49,6 +49,7 @@ public static class ServiceCollectionExtensions
         services.AddSingleton<IWebFetchTool, HtmlAgilityPackFetchTool>();
         services.AddSingleton<MindStateService>();
         services.AddSingleton<ShortTermMemoryService>();
+        services.AddSingleton<RepeatGuardService>();
 
         // Database — factory only; scoped DbContext is resolved per-scope via the factory
         var connectionString = configuration.GetConnectionString("DefaultConnection");
