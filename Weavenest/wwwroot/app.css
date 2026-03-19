@@ -194,8 +194,16 @@ h1:focus {
 }
 
 /* ── Mobile responsiveness ── */
+.mobile-only-menu-item {
+    display: none;
+}
+
 @media (max-width: 768px) {
     .mud-main-content .mud-container {
         padding: 4px !important;
+    }
+
+    .mobile-only-menu-item {
+        display: flex;
     }
 }

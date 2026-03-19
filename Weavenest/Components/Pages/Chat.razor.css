@@ -87,7 +87,6 @@
 
     .chat-header {
         gap: 0.25rem;
-        flex-wrap: wrap;
     }
 
     .model-select {
@@ -95,7 +94,7 @@
         min-width: 100px;
     }
 
-    .context-display-wrapper {
+    .desktop-only {
         display: none;
     }
 

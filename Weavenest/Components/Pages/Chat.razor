@@ -30,28 +30,44 @@
             }
         </MudSelect>
         <MudSpacer />
-        <div class="context-display-wrapper">
+        <div class="desktop-only">
             <ContextWindowDisplay EstimatedTokens="_estimatedTokenCount"
                                   ContextLength="_contextLength" />
         </div>
-        <MudTooltip Text="@SessionActivityTooltip">
-            <MudBadge Content="@SessionActivityBadge" Color="Color.Primary"
-                      Visible="@(_displayMessages.Count > 0 || _sessionWhitelistedDomains.Count > 0)"
-                      Overlap="true" Dot="false">
-                <MudIconButton Icon="@Icons.Material.Filled.ManageHistory"
-                               Color="@(_displayMessages.Count > 0 || _sessionWhitelistedDomains.Count > 0 ? Color.Primary : Color.Default)"
-                               OnClick="OpenSessionInfoDialog"
+        <div class="desktop-only">
+            <MudTooltip Text="@SessionActivityTooltip">
+                <MudBadge Content="@SessionActivityBadge" Color="Color.Primary"
+                          Visible="@(_displayMessages.Count > 0 || _sessionWhitelistedDomains.Count > 0)"
+                          Overlap="true" Dot="false">
+                    <MudIconButton Icon="@Icons.Material.Filled.ManageHistory"
+                                   Color="@(_displayMessages.Count > 0 || _sessionWhitelistedDomains.Count > 0 ? Color.Primary : Color.Default)"
+                                   OnClick="OpenSessionInfoDialog"
+                                   Class="ml-1" />
+                </MudBadge>
+            </MudTooltip>
+        </div>
+        <div class="desktop-only">
+            <MudTooltip Text="@UserPromptTooltip">
+                <MudIconButton Icon="@Icons.Material.Filled.Psychology"
+                               Color="@(!string.IsNullOrWhiteSpace(Settings.UserPrompt) ? Color.Primary : Color.Default)"
+                               OnClick="OpenUserMemoryDialog"
                                Class="ml-1" />
-            </MudBadge>
-        </MudTooltip>
-        <MudTooltip Text="@UserPromptTooltip">
-            <MudIconButton Icon="@Icons.Material.Filled.Psychology"
-                           Color="@(!string.IsNullOrWhiteSpace(Settings.UserPrompt) ? Color.Primary : Color.Default)"
-                           OnClick="OpenUserMemoryDialog"
-                           Class="ml-1" />
-        </MudTooltip>
+            </MudTooltip>
+        </div>
         <MudMenu Icon="@Icons.Material.Filled.Settings" AnchorOrigin="Origin.BottomRight"
                  TransformOrigin="Origin.TopRight" Dense="true">
+            <MudMenuItem OnClick="OpenSessionInfoDialog"
+                         Icon="@Icons.Material.Filled.ManageHistory"
+                         IconColor="@(_displayMessages.Count > 0 || _sessionWhitelistedDomains.Count > 0 ? Color.Primary : Color.Default)"
+                         Class="mobile-only-menu-item">
+                Session Info
+            </MudMenuItem>
+            <MudMenuItem OnClick="OpenUserMemoryDialog"
+                         Icon="@Icons.Material.Filled.Psychology"
+                         IconColor="@(!string.IsNullOrWhiteSpace(Settings.UserPrompt) ? Color.Primary : Color.Default)"
+                         Class="mobile-only-menu-item">
+                User Prompt
+            </MudMenuItem>
             <MudMenuItem OnClick="ToggleShowThinking"
                          Disabled="@(!_modelSupportsThinking)"
                          Icon="@(_showThinking && _modelSupportsThinking ? Icons.Material.Filled.CheckBox : Icons.Material.Filled.CheckBoxOutlineBlank)"
