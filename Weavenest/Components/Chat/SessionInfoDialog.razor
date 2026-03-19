@@ -14,9 +14,9 @@
         <MudTabs Elevation="0" Rounded="false">
 
             <MudTabPanel Text="Tool Calls" Icon="@Icons.Material.Filled.Build"
-                         BadgeData="@(ToolCalls.Count > 0 ? ToolCalls.Count : null)"
+                         BadgeData="@(ToolCallCount > 0 ? ToolCallCount : null)"
                          BadgeColor="Color.Primary">
-                @if (ToolCalls.Count == 0)
+                @if (ToolCallCount == 0)
                 {
                     <MudText Typo="Typo.body2" Style="opacity: 0.5;">
                         No tool calls yet this session.
@@ -109,6 +109,8 @@
 
     [Parameter]
     public Guid SessionId { get; set; }
+
+    private int ToolCallCount => ToolCalls.Count(m => m.Role == "tool_call");
 
     private async Task RemoveDomain(string domain)
     {
