@@ -50,7 +50,7 @@ public partial class Chat : IDisposable
     }
 
     private int SessionActivityBadge =>
-        _displayMessages.Count(m => m.Role == "tool_call") + _sessionWhitelistedDomains.Count;
+        _displayMessages.Count(m => m.Role == "tool_call");
 
     private string UserPromptTooltip => !string.IsNullOrWhiteSpace(Settings.UserPrompt)
         ? $"User memory active: \"{Settings.UserPrompt[..Math.Min(40, Settings.UserPrompt.Length)]}...\""
@@ -88,6 +88,10 @@ public partial class Chat : IDisposable
     private bool _trustAllDomainsForResearchRun;
     private ElementReference _researchFeedContainer;
 
+    // Session-load race guard — incremented each time OnParametersSetAsync starts
+    // so that stale DB results from a previous navigation don't overwrite the current session.
+    private int _loadGeneration;
+
     // Streaming mode state
     private bool _isStreaming;
     private ChatMessage _streamingMessage = new() { Role = ChatRole.Assistant, Content = "" };
@@ -123,6 +127,10 @@ public partial class Chat : IDisposable
 
     protected override async Task OnParametersSetAsync()
     {
+        // Increment the generation so any in-flight DB call from a previous
+        // OnParametersSetAsync knows it's stale and should bail out.
+        var thisGeneration = ++_loadGeneration;
+
         if (SessionId.HasValue)
         {
             // If we're viewing the session that's currently being processed, keep the live state
@@ -132,15 +140,28 @@ public partial class Chat : IDisposable
                 return;
             }
 
-            _currentSession = await ChatRepo.GetSessionByIdAsync(SessionId.Value);
+            var session = await ChatRepo.GetSessionByIdAsync(SessionId.Value);
+
+            // After the await: if the user clicked another session while we were
+            // loading, a newer OnParametersSetAsync has started — discard this result.
+            if (thisGeneration != _loadGeneration)
+                return;
+
+            _currentSession = session;
             if (_currentSession is not null)
             {
                 _selectedModel = _currentSession.ModelName ?? _selectedModel;
                 UpdateTokenEstimate();
                 await UpdateContextInfo();
 
+                if (thisGeneration != _loadGeneration)
+                    return;
+
                 // Load persisted whitelist for this session
                 await LoadWhitelistFromDb(SessionId.Value);
+
+                if (thisGeneration != _loadGeneration)
+                    return;
             }
 
             // When switching to a non-processing session, reset per-view state

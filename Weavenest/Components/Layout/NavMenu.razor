@@ -138,18 +138,28 @@
     private IEnumerable<ChatSession> UnfiledSessions => _sessions.Where(s => s.FolderId is null);
     private IEnumerable<ChatSession> SessionsInFolder(Guid folderId) => _sessions.Where(s => s.FolderId == folderId);
 
+    private bool IsSessionActive(Guid sessionId)
+    {
+        var uri = Navigation.ToBaseRelativePath(Navigation.Uri);
+        return uri.Equals($"chat/{sessionId}", StringComparison.OrdinalIgnoreCase);
+    }
+
+    private void NavigateToSession(Guid sessionId)
+    {
+        Navigation.NavigateTo($"/chat/{sessionId}");
+    }
+
     private RenderFragment RenderSessionItem(ChatSession session) => __builder =>
     {
         <div class="nav-session-item">
-            <MudNavLink Href="@($"/chat/{session.Id}")"
-                        Match="NavLinkMatch.All"
-                        Class="session-link">
+            <div class="session-link @(IsSessionActive(session.Id) ? "active" : "")"
+                 @onclick="() => NavigateToSession(session.Id)">
                 <div class="session-content">
                     <MudText Typo="Typo.body2" Class="session-title">
                         @session.Title
                     </MudText>
                 </div>
-            </MudNavLink>
+            </div>
             <div class="session-actions">
                 <MudMenu Icon="@Icons.Material.Filled.DriveFileMove" Size="Size.Small"
                          Class="move-btn" Dense="true" AnchorOrigin="Origin.BottomRight">
@@ -186,7 +196,13 @@
     protected override async Task OnInitializedAsync()
     {
         StateNotifier.OnSessionsChanged += OnSessionsChanged;
+        Navigation.LocationChanged += OnLocationChanged;
         await RefreshSessions();
+    }
+
+    private void OnLocationChanged(object? sender, Microsoft.AspNetCore.Components.Routing.LocationChangedEventArgs e)
+    {
+        InvokeAsync(StateHasChanged);
     }
 
     private async Task OnSessionsChanged()
@@ -339,5 +355,6 @@
     public void Dispose()
     {
         StateNotifier.OnSessionsChanged -= OnSessionsChanged;
+        Navigation.LocationChanged -= OnLocationChanged;
     }
 }

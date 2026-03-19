@@ -5,11 +5,23 @@
 }
 
 /* Session link fills the full row so the active highlight covers edge-to-edge */
-.nav-session-item ::deep .session-link {
+.session-link {
     flex: 1;
     overflow: hidden;
-    /* Reserve space on the right so title text doesn't clip under the action buttons */
+    cursor: pointer;
+    padding: 8px 12px;
     padding-right: 60px;
+    border-radius: 4px;
+    transition: background-color 0.15s;
+}
+
+.session-link:hover {
+    background-color: rgba(255, 255, 255, 0.08);
+}
+
+.session-link.active {
+    background-color: var(--mud-palette-primary-darken);
+    color: var(--mud-palette-primary-text);
 }
 
 /* Action buttons float absolutely over the right side of the row */
