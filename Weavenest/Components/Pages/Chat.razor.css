@@ -81,8 +81,9 @@
 /* ── Mobile responsiveness ── */
 @media (max-width: 768px) {
     .chat-container {
-        height: calc(100vh - 64px);
-        height: calc(100dvh - 64px);
+        height: calc(100vh - 72px);
+        height: calc(100dvh - 72px);
+        overflow: hidden;
     }
 
     .chat-header {
