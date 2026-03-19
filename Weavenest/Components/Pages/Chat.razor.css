@@ -77,3 +77,47 @@
     max-height: 220px;
     overflow-y: auto;
 }
+
+/* ── Mobile responsiveness ── */
+@media (max-width: 768px) {
+    .chat-container {
+        height: calc(100vh - 64px);
+        height: calc(100dvh - 64px);
+    }
+
+    .chat-header {
+        gap: 0.25rem;
+        flex-wrap: wrap;
+    }
+
+    .model-select {
+        max-width: 140px;
+        min-width: 100px;
+    }
+
+    .context-display-wrapper {
+        display: none;
+    }
+
+    .chat-messages {
+        padding: 0.5rem 0;
+        padding-right: 0.5rem;
+        padding-bottom: 1rem;
+    }
+
+    .chat-input-area {
+        padding: 0.25rem 0 0.5rem 0;
+    }
+
+    .chat-input-chips {
+        flex-wrap: wrap;
+    }
+
+    .research-feed-panel {
+        max-height: 200px;
+    }
+
+    .research-feed-list {
+        max-height: 140px;
+    }
+}

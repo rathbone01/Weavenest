@@ -30,8 +30,10 @@
             }
         </MudSelect>
         <MudSpacer />
-        <ContextWindowDisplay EstimatedTokens="_estimatedTokenCount"
-                              ContextLength="_contextLength" />
+        <div class="context-display-wrapper">
+            <ContextWindowDisplay EstimatedTokens="_estimatedTokenCount"
+                                  ContextLength="_contextLength" />
+        </div>
         <MudTooltip Text="@SessionActivityTooltip">
             <MudBadge Content="@SessionActivityBadge" Color="Color.Primary"
                       Visible="@(_displayMessages.Count > 0 || _sessionWhitelistedDomains.Count > 0)"

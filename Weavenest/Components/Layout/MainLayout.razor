@@ -1,7 +1,9 @@
 @inherits LayoutComponentBase
 @inject NavigationManager navigationManager
 @inject Weavenest.Services.CustomAuthenticationStateProvider AuthStateProvider
+@inject IJSRuntime JS
 @using Weavenest.Configuration
+@implements IDisposable
 
 <MudThemeProvider IsDarkMode="true" Theme="WeavenestTheme.Theme" />
 <MudPopoverProvider />
@@ -22,7 +24,7 @@
             </Authorized>
         </AuthorizeView>
     </MudAppBar>
-    <MudDrawer @bind-Open="_drawerOpen" Elevation="2">
+    <MudDrawer @bind-Open="_drawerOpen" Elevation="2" Breakpoint="Breakpoint.Sm">
         <MudDrawerHeader>
             <MudText Typo="Typo.h5" Class="mt-1" Color="Color.Primary">Weavenest</MudText>
         </MudDrawerHeader>
@@ -37,15 +39,49 @@
 
 @code {
     bool _drawerOpen = true;
+    bool _isMobile;
+
+    protected override void OnInitialized()
+    {
+        navigationManager.LocationChanged += OnLocationChanged;
+    }
+
+    protected override async Task OnAfterRenderAsync(bool firstRender)
+    {
+        if (firstRender)
+        {
+            var width = await JS.InvokeAsync<int>("eval", "window.innerWidth");
+            _isMobile = width <= 768;
+            if (_isMobile)
+            {
+                _drawerOpen = false;
+                StateHasChanged();
+            }
+        }
+    }
 
     void DrawerToggle()
     {
         _drawerOpen = !_drawerOpen;
     }
 
+    private void OnLocationChanged(object? sender, Microsoft.AspNetCore.Components.Routing.LocationChangedEventArgs e)
+    {
+        if (_isMobile && _drawerOpen)
+        {
+            _drawerOpen = false;
+            InvokeAsync(StateHasChanged);
+        }
+    }
+
     private async Task HandleLogout()
     {
         await AuthStateProvider.Logout();
         navigationManager.NavigateTo("/login");
+    }
+
+    public void Dispose()
+    {
+        navigationManager.LocationChanged -= OnLocationChanged;
     }
 }
