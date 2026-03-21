@@ -11,8 +11,8 @@ namespace Weavenest.Services;
 
 public class AgenticChatService : IAgenticChatService
 {
-    private const int DefaultMaxIterations = 10;
-    private const int DeepResearchMaxIterations = 50;
+    private const int DefaultMaxIterations = 50;
+    private const int DeepResearchMaxIterations = 600;
 
     private static readonly string DeepResearchSystemPrompt =
         """
@@ -40,6 +40,7 @@ public class AgenticChatService : IAgenticChatService
         List every URL that contributed to the report with its title.
 
         Do not produce a conversational reply. Only produce the structured report. Be thorough and cite your sources inline using [1], [2] etc.
+        IMPORTANT: Write the final report as direct output. Do not wrap it in <think>, reasoning, or any other tags — the report must appear as plain markdown text.
         """;
 
     private static readonly string WebSearchSystemPrompt =
@@ -278,6 +279,11 @@ public class AgenticChatService : IAgenticChatService
             context.EmitEvent("Synthesizing report...", "finalizing");
 
         var (content, thinking) = ThinkTagParser.Parse(response.Message.Content);
+
+        // Thinking models sometimes wrap the entire report in <think> tags; promote it to content
+        if (context.IsDeepResearch && string.IsNullOrWhiteSpace(content) && !string.IsNullOrWhiteSpace(thinking))
+            (content, thinking) = (thinking.Trim(), null);
+
         return MakeResult(context.Request.ModelName, content, thinking);
     }
 
@@ -344,6 +350,11 @@ public class AgenticChatService : IAgenticChatService
         if (finalResponse is not null)
         {
             var (finalContent, finalThinking) = ThinkTagParser.Parse(finalResponse.Message.Content);
+
+            // Thinking models sometimes wrap the entire report in <think> tags; promote it to content
+            if (context.IsDeepResearch && string.IsNullOrWhiteSpace(finalContent) && !string.IsNullOrWhiteSpace(finalThinking))
+                (finalContent, finalThinking) = (finalThinking.Trim(), null);
+
             return MakeResult(context.Request.ModelName, finalContent, finalThinking);
         }
 

@@ -1,0 +1,18 @@
+.login-wrap {
+    position: relative;
+}
+
+.login-logo {
+    position: absolute;
+    bottom: 100%;
+    left: 50%;
+    transform: translateX(-50%);
+    margin-bottom: 2rem;
+    white-space: nowrap;
+}
+
+@media (max-width: 768px) {
+    .login-logo {
+        display: none;
+    }
+}

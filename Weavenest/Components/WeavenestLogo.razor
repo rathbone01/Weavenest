@@ -1,0 +1,41 @@
+@inject IJSRuntime JS
+@implements IAsyncDisposable
+
+<div class="weavenest-logo-wrap @(ShowWordmark ? "with-wordmark" : "")">
+    <div class="logo-mark" style="width: @(Size)px; height: @(Size)px;">
+        <canvas id="@_canvasId" width="480" height="480"></canvas>
+    </div>
+    @if (ShowWordmark)
+    {
+        <div class="logo-wordmark @(InlineWords ? "inline-words" : "")">
+            <span class="word-weave" style="font-size: @(WordFontSize)px;">weave</span><span class="word-nest" style="font-size: @(WordFontSize)px;">nest</span>
+            @if (!InlineWords)
+            {
+                <div class="logo-rule"></div>
+                <span class="logo-tagline" style="font-size: @(TaglineFontSize)px;">SELF-HOSTED AI FRONTEND</span>
+            }
+        </div>
+    }
+</div>
+
+@code {
+    [Parameter] public int Size { get; set; } = 120;
+    [Parameter] public bool ShowWordmark { get; set; } = false;
+    [Parameter] public bool InlineWords { get; set; } = false;
+
+    private readonly string _canvasId = "wn-logo-" + Guid.NewGuid().ToString("N");
+    private int WordFontSize => (int)(Size * 0.29);
+    private int TaglineFontSize => (int)(Size * 0.047);
+
+    protected override async Task OnAfterRenderAsync(bool firstRender)
+    {
+        if (firstRender)
+            await JS.InvokeVoidAsync("weavenestLogo.start", _canvasId);
+    }
+
+    public async ValueTask DisposeAsync()
+    {
+        try { await JS.InvokeVoidAsync("weavenestLogo.stop", _canvasId); }
+        catch { /* circuit may already be gone */ }
+    }
+}

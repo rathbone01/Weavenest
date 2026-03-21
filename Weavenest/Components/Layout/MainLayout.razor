@@ -13,7 +13,9 @@
 <MudLayout>
     <MudAppBar Elevation="1">
         <MudIconButton Icon="@Icons.Material.Filled.Menu" Color="Color.Inherit" Edge="Edge.Start" OnClick="@((e) => DrawerToggle())" />
-        <MudText Typo="Typo.h6" Class="ml-3">Weavenest</MudText>
+        <div class="ml-3" style="font-family: Georgia, 'Times New Roman', serif; line-height: 1; letter-spacing: -0.03em; font-size: 22px;">
+            <span style="font-style: italic; color: #CECBF6;">weave</span><span style="color: #534AB7;">nest</span>
+        </div>
         <MudSpacer />
         <AuthorizeView>
             <Authorized>
@@ -25,9 +27,6 @@
         </AuthorizeView>
     </MudAppBar>
     <MudDrawer @bind-Open="_drawerOpen" Elevation="2" Breakpoint="Breakpoint.Sm">
-        <MudDrawerHeader>
-            <MudText Typo="Typo.h5" Class="mt-1" Color="Color.Primary">Weavenest</MudText>
-        </MudDrawerHeader>
         <NavMenu />
     </MudDrawer>
     <MudMainContent>

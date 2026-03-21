@@ -1,0 +1,73 @@
+.weavenest-logo-wrap {
+    display: flex;
+    align-items: center;
+    gap: 0;
+}
+
+.weavenest-logo-wrap.with-wordmark {
+    gap: 28px;
+}
+
+.logo-mark {
+    position: relative;
+    flex-shrink: 0;
+}
+
+.logo-mark canvas {
+    width: 100%;
+    height: 100%;
+    display: block;
+}
+
+.logo-wordmark {
+    display: flex;
+    flex-direction: column;
+    gap: 0;
+    font-family: Georgia, 'Times New Roman', serif;
+}
+
+.logo-wordmark.inline-words {
+    flex-direction: row;
+    align-items: baseline;
+}
+
+.word-weave {
+    font-style: italic;
+    font-weight: 400;
+    letter-spacing: -0.03em;
+    line-height: 1;
+    color: #CECBF6;
+}
+
+.word-nest {
+    font-style: normal;
+    font-weight: 400;
+    letter-spacing: -0.03em;
+    line-height: 1;
+    color: #534AB7;
+    margin-top: -0.06em;
+}
+
+.inline-words .word-nest {
+    margin-top: 0;
+}
+
+.logo-rule {
+    width: 0;
+    height: 1px;
+    background: #534AB7;
+    opacity: 0.45;
+    margin: 10px 0 8px;
+    animation: wn-rule-draw 1.2s ease-out 0.3s forwards;
+}
+
+@keyframes wn-rule-draw {
+    to { width: 100%; }
+}
+
+.logo-tagline {
+    font-family: 'Courier New', Courier, monospace;
+    letter-spacing: 0.32em;
+    color: #7F77DD;
+    white-space: nowrap;
+}

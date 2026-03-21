@@ -7,12 +7,16 @@
 @inject IAuthService AuthService
 @inject CustomAuthenticationStateProvider AuthStateProvider
 @inject NavigationManager Navigation
+@inject AuthenticationStateProvider AuthenticationStateProvider
 
 <PageTitle>Login - Weavenest</PageTitle>
 
-<MudCard Style="width: 400px;">
+<div class="login-wrap">
+    <div class="login-logo">
+        <WeavenestLogo Size="220" ShowWordmark="true" InlineWords="true" />
+    </div>
+    <MudCard class="login-card" Style="width: 400px;">
     <MudCardContent>
-        <MudText Typo="Typo.h4" Class="mb-4" Align="Align.Center">Weavenest</MudText>
         <MudTextField Label="Username"
                       @bind-Value="_username"
                       Immediate="true"
@@ -46,13 +50,21 @@
             Don't have an account? Sign up
         </MudLink>
     </MudCardActions>
-</MudCard>
+    </MudCard>
+</div>
 
 @code {
     private string _username = string.Empty;
     private string _password = string.Empty;
     private string _errorMessage = string.Empty;
     private bool _isLoading;
+
+    protected override async Task OnInitializedAsync()
+    {
+        var state = await AuthenticationStateProvider.GetAuthenticationStateAsync();
+        if (state.User.Identity?.IsAuthenticated == true)
+            Navigation.NavigateTo("/chat", replace: true);
+    }
 
     private async Task HandleKeyDown(KeyboardEventArgs e)
     {
