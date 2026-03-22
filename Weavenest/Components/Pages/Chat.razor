@@ -15,6 +15,7 @@
 @inject ILogger<Chat> Logger
 @inject IUserIdentityService UserIdentity
 @inject IUserRepository UserRepo
+@inject IAuthService AuthService
 @implements IDisposable
 
 <PageTitle>Chat - Weavenest</PageTitle>
@@ -73,6 +74,10 @@
                          Icon="@(_showThinking && _modelSupportsThinking ? Icons.Material.Filled.CheckBox : Icons.Material.Filled.CheckBoxOutlineBlank)"
                          IconColor="@(_showThinking && _modelSupportsThinking ? Color.Primary : Color.Default)">
                 Show Thinking
+            </MudMenuItem>
+            <MudMenuItem OnClick="OpenChangePasswordDialog"
+                         Icon="@Icons.Material.Filled.Lock">
+                Change Password
             </MudMenuItem>
         </MudMenu>
     </div>

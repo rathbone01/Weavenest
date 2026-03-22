@@ -21,11 +21,20 @@ public class UserConfiguration : IEntityTypeConfiguration<User>
 
         builder.Property(u => u.PasswordHash)
             .IsRequired()
-            .HasMaxLength(256);
+            .HasMaxLength(512);
 
         builder.Property(u => u.UserPrompt)
             .HasColumnType("nvarchar(max)")
             .IsRequired(false);
+
+        builder.Property(u => u.EncryptionSalt)
+            .IsRequired()
+            .HasMaxLength(16)
+            .HasDefaultValue(Array.Empty<byte>());
+
+        builder.Property(u => u.IsDataEncrypted)
+            .IsRequired()
+            .HasDefaultValue(false);
 
         builder.Property(u => u.CreatedAt)
             .IsRequired();

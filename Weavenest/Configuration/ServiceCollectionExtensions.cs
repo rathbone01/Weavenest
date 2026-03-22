@@ -2,6 +2,7 @@ using Microsoft.AspNetCore.Components.Authorization;
 using Microsoft.EntityFrameworkCore;
 using Microsoft.Extensions.Options;
 using Weavenest.DataAccess.Data;
+using Weavenest.DataAccess.Interfaces;
 using Weavenest.DataAccess.Repositories;
 using Weavenest.Services;
 using Weavenest.Services.Interfaces;
@@ -70,6 +71,8 @@ public static class ServiceCollectionExtensions
 
         services.AddScoped<ChatStateNotifier>();
         services.AddScoped<CircuitSettings>();
+        services.AddScoped<IEncryptionService, EncryptionService>();
+        services.AddScoped<DataMigrationService>();
 
         return services;
     }

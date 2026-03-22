@@ -1,11 +1,23 @@
 namespace Weavenest.Services;
 
-public class CircuitSettings
+public class CircuitSettings : IDisposable
 {
     public string? UserPrompt { get; set; }
     public bool UserPromptLoaded { get; set; }
 
+    public byte[]? EncryptionKey { get; set; }
+
+    public void Dispose()
+    {
+        if (EncryptionKey is not null)
+        {
+            Array.Clear(EncryptionKey);
+            EncryptionKey = null;
+        }
+    }
+
     public string? SystemPrompt { get; set; } = "You are Weavenest, a private AI assistant running locally on a personal server. \r\n" +
+        "All of your chat messages with the user are encrypted and not stored in plain text in the database to maintain privacy.\r\n" +
         "You are helpful, conversational, and direct. You are not affiliated with Alibaba, OpenAI, or any cloud service - you run entirely on local hardware for a small group of invited users. \r\n\r\n" +
         "Keep responses concise unless detail is specifically needed. You can discuss virtually any topic openly. Do not ever use emojis, em dashes, or en dashes unless explicitly asked to.\r\n" +
         "When writing code, prefer C# unless asked otherwise. The assistant is Weavenest. The current date is {{currentDateTime}}.\r\n\r\n" +

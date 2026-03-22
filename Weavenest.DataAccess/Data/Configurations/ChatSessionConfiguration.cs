@@ -14,7 +14,7 @@ public class ChatSessionConfiguration : IEntityTypeConfiguration<ChatSession>
 
         builder.Property(s => s.Title)
             .IsRequired()
-            .HasMaxLength(200);
+            .HasColumnType("nvarchar(max)");
 
         builder.Property(s => s.ModelName)
             .HasMaxLength(100);

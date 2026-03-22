@@ -269,6 +269,28 @@ public partial class Chat : IDisposable
         }
     }
 
+    private async Task OpenChangePasswordDialog()
+    {
+        var userId = await UserIdentity.GetCurrentUserIdAsync();
+        if (!userId.HasValue) return;
+
+        var parameters = new DialogParameters
+        {
+            ["UserId"] = userId.Value,
+            ["OnChangePassword"] = new Func<Guid, string, string, Task<(bool Success, string? Error)>>(
+                (id, oldPw, newPw) => AuthService.ChangePasswordAsync(id, oldPw, newPw))
+        };
+
+        var options = new DialogOptions
+        {
+            CloseButton = true,
+            MaxWidth = MaxWidth.Small,
+            FullWidth = true
+        };
+
+        await DialogService.ShowAsync<ChangePasswordDialog>("Change Password", parameters, options);
+    }
+
     private async Task HandleKeyDown(KeyboardEventArgs e)
     {
         if (e.Key == "Enter" && !e.ShiftKey && !_isProcessing)
