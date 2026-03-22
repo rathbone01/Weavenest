@@ -68,6 +68,30 @@ public static class HashHelper
     public static byte[] GenerateEncryptionSalt() => RandomNumberGenerator.GetBytes(SaltSize);
 
     /// <summary>
+    /// Validates password meets minimum strength requirements.
+    /// Since the encryption key is derived from the password, weak passwords mean weak encryption.
+    /// </summary>
+    public static (bool IsValid, string? Error) ValidatePasswordStrength(string password)
+    {
+        if (string.IsNullOrWhiteSpace(password))
+            return (false, "Password is required.");
+
+        if (password.Length < 12)
+            return (false, "Password must be at least 12 characters long.");
+
+        if (!password.Any(char.IsUpper))
+            return (false, "Password must contain at least one uppercase letter.");
+
+        if (!password.Any(char.IsLower))
+            return (false, "Password must contain at least one lowercase letter.");
+
+        if (!password.Any(char.IsDigit))
+            return (false, "Password must contain at least one digit.");
+
+        return (true, null);
+    }
+
+    /// <summary>
     /// Legacy SHA-256 hash for backward compatibility during migration.
     /// </summary>
     private static string LegacyHash(string input)

@@ -1,4 +1,6 @@
+using System.Collections.Concurrent;
 using Microsoft.EntityFrameworkCore;
+using Microsoft.Extensions.Logging;
 using Weavenest.DataAccess.Data;
 using Weavenest.DataAccess.Interfaces;
 
@@ -6,43 +8,63 @@ namespace Weavenest.Services;
 
 public class DataMigrationService(
     IDbContextFactory<WeavenestDbContext> contextFactory,
-    IEncryptionService encryption)
+    IEncryptionService encryption,
+    ILogger<DataMigrationService> logger)
 {
+    private static readonly ConcurrentDictionary<Guid, SemaphoreSlim> MigrationLocks = new();
+
     public async Task MigrateUserDataIfNeededAsync(Guid userId)
     {
         if (!encryption.IsReady)
             return;
 
-        await using var context = await contextFactory.CreateDbContextAsync();
+        var semaphore = MigrationLocks.GetOrAdd(userId, _ => new SemaphoreSlim(1, 1));
+        await semaphore.WaitAsync();
 
-        var user = await context.Users.FindAsync(userId);
-        if (user is null || user.IsDataEncrypted)
-            return;
-
-        // Encrypt user prompt
-        if (user.UserPrompt is not null)
-            user.UserPrompt = encryption.Encrypt(user.UserPrompt);
-
-        // Encrypt all sessions and messages
-        var sessions = await context.Sessions
-            .Where(s => s.UserId == userId)
-            .Include(s => s.Messages)
-            .ToListAsync();
-
-        foreach (var session in sessions)
+        try
         {
-            session.Title = encryption.Encrypt(session.Title);
+            await using var context = await contextFactory.CreateDbContextAsync();
 
-            foreach (var message in session.Messages)
+            var user = await context.Users.FindAsync(userId);
+            if (user is null || user.IsDataEncrypted)
+                return;
+
+            logger.LogInformation("Starting data encryption migration for user {UserId}", userId);
+
+            // Encrypt user prompt
+            if (user.UserPrompt is not null)
+                user.UserPrompt = encryption.Encrypt(user.UserPrompt);
+
+            // Encrypt all sessions and messages
+            var sessions = await context.Sessions
+                .Where(s => s.UserId == userId)
+                .Include(s => s.Messages)
+                .ToListAsync();
+
+            var messageCount = 0;
+            foreach (var session in sessions)
             {
-                message.Content = encryption.Encrypt(message.Content);
-                if (message.Thinking is not null)
-                    message.Thinking = encryption.Encrypt(message.Thinking);
-            }
-        }
+                session.Title = encryption.Encrypt(session.Title);
 
-        user.IsDataEncrypted = true;
-        await context.SaveChangesAsync();
+                foreach (var message in session.Messages)
+                {
+                    message.Content = encryption.Encrypt(message.Content);
+                    if (message.Thinking is not null)
+                        message.Thinking = encryption.Encrypt(message.Thinking);
+                    messageCount++;
+                }
+            }
+
+            user.IsDataEncrypted = true;
+            await context.SaveChangesAsync();
+
+            logger.LogInformation("Data encryption migration complete for user {UserId}: {SessionCount} sessions, {MessageCount} messages encrypted",
+                userId, sessions.Count, messageCount);
+        }
+        finally
+        {
+            semaphore.Release();
+        }
     }
 
     /// <summary>
@@ -84,5 +106,7 @@ public class DataMigrationService(
         user.PasswordHash = newPasswordHash;
         user.EncryptionSalt = newEncryptionSalt;
         await context.SaveChangesAsync();
+
+        logger.LogInformation("Re-encryption complete for user {UserId}: {SessionCount} sessions re-encrypted", userId, sessions.Count);
     }
 }

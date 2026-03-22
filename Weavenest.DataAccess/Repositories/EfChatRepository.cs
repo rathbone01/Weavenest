@@ -1,4 +1,5 @@
 using Microsoft.EntityFrameworkCore;
+using Microsoft.Extensions.Logging;
 using Weavenest.DataAccess.Data;
 using Weavenest.DataAccess.Models;
 using Weavenest.DataAccess.Interfaces;
@@ -7,7 +8,8 @@ namespace Weavenest.DataAccess.Repositories;
 
 public class EfChatRepository(
     IDbContextFactory<WeavenestDbContext> contextFactory,
-    IEncryptionService encryption) : IChatRepository
+    IEncryptionService encryption,
+    ILogger<EfChatRepository> logger) : IChatRepository
 {
     public async Task<ChatSession> CreateSessionAsync(Guid userId, string? title = null, string? modelName = null)
     {
@@ -47,13 +49,13 @@ public class EfChatRepository(
         return sessions;
     }
 
-    public async Task<ChatSession?> GetSessionByIdAsync(Guid sessionId)
+    public async Task<ChatSession?> GetSessionByIdAsync(Guid userId, Guid sessionId)
     {
         await using var context = await contextFactory.CreateDbContextAsync();
 
         var session = await context.Sessions
             .Include(s => s.Messages.OrderBy(m => m.Timestamp))
-            .FirstOrDefaultAsync(s => s.Id == sessionId);
+            .FirstOrDefaultAsync(s => s.Id == sessionId && s.UserId == userId);
 
         if (session is not null && encryption.IsReady)
         {
@@ -65,11 +67,12 @@ public class EfChatRepository(
         return session;
     }
 
-    public async Task<bool> DeleteSessionAsync(Guid sessionId)
+    public async Task<bool> DeleteSessionAsync(Guid userId, Guid sessionId)
     {
         await using var context = await contextFactory.CreateDbContextAsync();
 
-        var session = await context.Sessions.FindAsync(sessionId);
+        var session = await context.Sessions
+            .FirstOrDefaultAsync(s => s.Id == sessionId && s.UserId == userId);
         if (session is null)
             return false;
 
@@ -78,11 +81,12 @@ public class EfChatRepository(
         return true;
     }
 
-    public async Task<ChatSession> UpdateSessionTitleAsync(Guid sessionId, string title)
+    public async Task<ChatSession> UpdateSessionTitleAsync(Guid userId, Guid sessionId, string title)
     {
         await using var context = await contextFactory.CreateDbContextAsync();
 
-        var session = await context.Sessions.FindAsync(sessionId)
+        var session = await context.Sessions
+            .FirstOrDefaultAsync(s => s.Id == sessionId && s.UserId == userId)
             ?? throw new KeyNotFoundException($"Session {sessionId} not found");
 
         session.Title = encryption.IsReady ? encryption.Encrypt(title) : title;
@@ -94,11 +98,12 @@ public class EfChatRepository(
         return session;
     }
 
-    public async Task<ChatMessage> AddMessageAsync(Guid sessionId, ChatRole role, string content, int? tokenCount = null, string? modelName = null, string? thinking = null)
+    public async Task<ChatMessage> AddMessageAsync(Guid userId, Guid sessionId, ChatRole role, string content, int? tokenCount = null, string? modelName = null, string? thinking = null)
     {
         await using var context = await contextFactory.CreateDbContextAsync();
 
-        var session = await context.Sessions.FindAsync(sessionId)
+        var session = await context.Sessions
+            .FirstOrDefaultAsync(s => s.Id == sessionId && s.UserId == userId)
             ?? throw new KeyNotFoundException($"Session {sessionId} not found");
 
         var encryptedContent = encryption.IsReady ? encryption.Encrypt(content) : content;
@@ -126,9 +131,15 @@ public class EfChatRepository(
         return message;
     }
 
-    public async Task<IReadOnlyList<ChatMessage>> GetMessagesAsync(Guid sessionId)
+    public async Task<IReadOnlyList<ChatMessage>> GetMessagesAsync(Guid userId, Guid sessionId)
     {
         await using var context = await contextFactory.CreateDbContextAsync();
+
+        // Verify session ownership before returning messages
+        var ownsSession = await context.Sessions
+            .AnyAsync(s => s.Id == sessionId && s.UserId == userId);
+        if (!ownsSession)
+            return [];
 
         var messages = await context.Messages
             .Where(m => m.SessionId == sessionId)
@@ -144,14 +155,15 @@ public class EfChatRepository(
         return messages;
     }
 
-    public async Task<ChatSession> AddSessionToFolderAsync(Guid sessionId, Guid folderId)
+    public async Task<ChatSession> AddSessionToFolderAsync(Guid userId, Guid sessionId, Guid folderId)
     {
         await using var context = await contextFactory.CreateDbContextAsync();
 
-        var session = await context.Sessions.FindAsync(sessionId)
+        var session = await context.Sessions
+            .FirstOrDefaultAsync(s => s.Id == sessionId && s.UserId == userId)
             ?? throw new KeyNotFoundException($"Session {sessionId} not found");
 
-        var folderExists = await context.Folders.AnyAsync(f => f.Id == folderId);
+        var folderExists = await context.Folders.AnyAsync(f => f.Id == folderId && f.UserId == userId);
         if (!folderExists)
             throw new KeyNotFoundException($"Folder {folderId} not found");
 
@@ -165,11 +177,12 @@ public class EfChatRepository(
         return session;
     }
 
-    public async Task<ChatSession> RemoveSessionFromFolderAsync(Guid sessionId)
+    public async Task<ChatSession> RemoveSessionFromFolderAsync(Guid userId, Guid sessionId)
     {
         await using var context = await contextFactory.CreateDbContextAsync();
 
-        var session = await context.Sessions.FindAsync(sessionId)
+        var session = await context.Sessions
+            .FirstOrDefaultAsync(s => s.Id == sessionId && s.UserId == userId)
             ?? throw new KeyNotFoundException($"Session {sessionId} not found");
 
         session.FolderId = null;
@@ -223,9 +236,14 @@ public class EfChatRepository(
             .ToListAsync();
     }
 
-    public async Task<IReadOnlyList<string>> GetWhitelistedDomainsAsync(Guid sessionId)
+    public async Task<IReadOnlyList<string>> GetWhitelistedDomainsAsync(Guid userId, Guid sessionId)
     {
         await using var context = await contextFactory.CreateDbContextAsync();
+
+        var ownsSession = await context.Sessions
+            .AnyAsync(s => s.Id == sessionId && s.UserId == userId);
+        if (!ownsSession)
+            return [];
 
         return await context.WhitelistedDomains
             .Where(w => w.SessionId == sessionId)
@@ -234,9 +252,14 @@ public class EfChatRepository(
             .ToListAsync();
     }
 
-    public async Task AddWhitelistedDomainAsync(Guid sessionId, string domain)
+    public async Task AddWhitelistedDomainAsync(Guid userId, Guid sessionId, string domain)
     {
         await using var context = await contextFactory.CreateDbContextAsync();
+
+        var ownsSession = await context.Sessions
+            .AnyAsync(s => s.Id == sessionId && s.UserId == userId);
+        if (!ownsSession)
+            return;
 
         var exists = await context.WhitelistedDomains
             .AnyAsync(w => w.SessionId == sessionId && w.Domain == domain);
@@ -251,9 +274,14 @@ public class EfChatRepository(
         await context.SaveChangesAsync();
     }
 
-    public async Task RemoveWhitelistedDomainAsync(Guid sessionId, string domain)
+    public async Task RemoveWhitelistedDomainAsync(Guid userId, Guid sessionId, string domain)
     {
         await using var context = await contextFactory.CreateDbContextAsync();
+
+        var ownsSession = await context.Sessions
+            .AnyAsync(s => s.Id == sessionId && s.UserId == userId);
+        if (!ownsSession)
+            return;
 
         var entry = await context.WhitelistedDomains
             .FirstOrDefaultAsync(w => w.SessionId == sessionId && w.Domain == domain);
@@ -264,9 +292,14 @@ public class EfChatRepository(
         await context.SaveChangesAsync();
     }
 
-    public async Task ClearWhitelistedDomainsAsync(Guid sessionId)
+    public async Task ClearWhitelistedDomainsAsync(Guid userId, Guid sessionId)
     {
         await using var context = await contextFactory.CreateDbContextAsync();
+
+        var ownsSession = await context.Sessions
+            .AnyAsync(s => s.Id == sessionId && s.UserId == userId);
+        if (!ownsSession)
+            return;
 
         var entries = await context.WhitelistedDomains
             .Where(w => w.SessionId == sessionId)
@@ -281,18 +314,27 @@ public class EfChatRepository(
     private void DecryptSession(ChatSession session)
     {
         try { session.Title = encryption.Decrypt(session.Title); }
-        catch { /* Title may be unencrypted (pre-migration) */ }
+        catch (Exception ex)
+        {
+            logger.LogWarning(ex, "Failed to decrypt session title — session {SessionId}, may be pre-migration plaintext", session.Id);
+        }
     }
 
     private void DecryptMessage(ChatMessage message)
     {
         try { message.Content = encryption.Decrypt(message.Content); }
-        catch { /* Content may be unencrypted (pre-migration) */ }
+        catch (Exception ex)
+        {
+            logger.LogWarning(ex, "Failed to decrypt message content — message {MessageId} in session {SessionId}", message.Id, message.SessionId);
+        }
 
         if (message.Thinking is not null)
         {
             try { message.Thinking = encryption.Decrypt(message.Thinking); }
-            catch { /* Thinking may be unencrypted (pre-migration) */ }
+            catch (Exception ex)
+            {
+                logger.LogWarning(ex, "Failed to decrypt thinking — message {MessageId} in session {SessionId}", message.Id, message.SessionId);
+            }
         }
     }
 }

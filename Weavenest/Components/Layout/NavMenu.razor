@@ -131,6 +131,7 @@
     private IReadOnlyList<ChatSession> _sessions = [];
     private IReadOnlyList<Folder> _folders = [];
     private HashSet<Guid> _expandedFolders = [];
+    private Guid? _userId;
     private string _searchQuery = "";
     private IReadOnlyList<ChatSession>? _searchResults;
     private bool _isSearching => !string.IsNullOrWhiteSpace(_searchQuery);
@@ -216,15 +217,15 @@
 
     private async Task RefreshSessions()
     {
-        var userId = await UserIdentity.GetCurrentUserIdAsync();
-        if (userId is null)
+        _userId = await UserIdentity.GetCurrentUserIdAsync();
+        if (_userId is null)
         {
             _sessions = [];
             _folders = [];
             return;
         }
-        _sessions = await ChatRepo.GetSessionsAsync(userId.Value);
-        _folders = await FolderRepo.GetFoldersByUserAsync(userId.Value);
+        _sessions = await ChatRepo.GetSessionsAsync(_userId.Value);
+        _folders = await FolderRepo.GetFoldersByUserAsync(_userId.Value);
     }
 
     private void StartNewChat()
@@ -242,7 +243,8 @@
 
         if (confirmed == true)
         {
-            await ChatRepo.DeleteSessionAsync(sessionId);
+            if (_userId is null) return;
+            await ChatRepo.DeleteSessionAsync(_userId.Value, sessionId);
             await RefreshSessions();
             StateHasChanged();
 
@@ -256,10 +258,11 @@
 
     private async Task MoveToFolder(Guid sessionId, Guid? folderId)
     {
+        if (_userId is null) return;
         if (folderId.HasValue)
-            await ChatRepo.AddSessionToFolderAsync(sessionId, folderId.Value);
+            await ChatRepo.AddSessionToFolderAsync(_userId.Value, sessionId, folderId.Value);
         else
-            await ChatRepo.RemoveSessionFromFolderAsync(sessionId);
+            await ChatRepo.RemoveSessionFromFolderAsync(_userId.Value, sessionId);
 
         await RefreshSessions();
         StateHasChanged();
@@ -307,7 +310,8 @@
 
         if (!result!.Canceled && result.Data is string newName)
         {
-            await FolderRepo.RenameFolderAsync(folder.Id, newName);
+            if (_userId is null) return;
+            await FolderRepo.RenameFolderAsync(_userId.Value, folder.Id, newName);
             await RefreshSessions();
             StateHasChanged();
         }
@@ -323,7 +327,8 @@
 
         if (confirmed == true)
         {
-            await FolderRepo.DeleteFolderAsync(folder.Id);
+            if (_userId is null) return;
+            await FolderRepo.DeleteFolderAsync(_userId.Value, folder.Id);
             _expandedFolders.Remove(folder.Id);
             await RefreshSessions();
             StateHasChanged();

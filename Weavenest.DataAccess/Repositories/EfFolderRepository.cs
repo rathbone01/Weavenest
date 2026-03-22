@@ -21,13 +21,13 @@ public class EfFolderRepository(IDbContextFactory<WeavenestDbContext> contextFac
         return folder;
     }
 
-    public async Task<Folder?> GetFolderByIdAsync(Guid folderId)
+    public async Task<Folder?> GetFolderByIdAsync(Guid userId, Guid folderId)
     {
         await using var context = await contextFactory.CreateDbContextAsync();
 
         return await context.Folders
             .Include(f => f.Sessions)
-            .FirstOrDefaultAsync(f => f.Id == folderId);
+            .FirstOrDefaultAsync(f => f.Id == folderId && f.UserId == userId);
     }
 
     public async Task<IReadOnlyList<Folder>> GetFoldersByUserAsync(Guid userId)
@@ -51,11 +51,12 @@ public class EfFolderRepository(IDbContextFactory<WeavenestDbContext> contextFac
             .ToListAsync();
     }
 
-    public async Task<Folder> RenameFolderAsync(Guid folderId, string newName)
+    public async Task<Folder> RenameFolderAsync(Guid userId, Guid folderId, string newName)
     {
         await using var context = await contextFactory.CreateDbContextAsync();
 
-        var folder = await context.Folders.FindAsync(folderId)
+        var folder = await context.Folders
+            .FirstOrDefaultAsync(f => f.Id == folderId && f.UserId == userId)
             ?? throw new KeyNotFoundException($"Folder {folderId} not found");
 
         folder.Name = newName;
@@ -64,11 +65,12 @@ public class EfFolderRepository(IDbContextFactory<WeavenestDbContext> contextFac
         return folder;
     }
 
-    public async Task<bool> DeleteFolderAsync(Guid folderId)
+    public async Task<bool> DeleteFolderAsync(Guid userId, Guid folderId)
     {
         await using var context = await contextFactory.CreateDbContextAsync();
 
-        var folder = await context.Folders.FindAsync(folderId);
+        var folder = await context.Folders
+            .FirstOrDefaultAsync(f => f.Id == folderId && f.UserId == userId);
         if (folder is null)
             return false;
 

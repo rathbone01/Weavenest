@@ -64,6 +64,7 @@ public static class ServiceCollectionExtensions
         services.AddScoped<ILocalStorageService, LocalStorageService>();
         services.AddScoped<IUserIdentityService, UserIdentityService>();
         services.AddScoped<IAuthService, AuthService>();
+        services.AddSingleton<LoginRateLimiter>();
         services.AddScoped<TokenService>();
         services.AddScoped<AuthenticationStateProvider, CustomAuthenticationStateProvider>();
         services.AddScoped(sp =>

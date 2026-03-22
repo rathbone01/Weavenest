@@ -1,4 +1,5 @@
 using Microsoft.EntityFrameworkCore;
+using Microsoft.Extensions.Logging;
 using Weavenest.DataAccess.Data;
 using Weavenest.DataAccess.Models;
 using Weavenest.DataAccess.Interfaces;
@@ -7,7 +8,8 @@ namespace Weavenest.DataAccess.Repositories;
 
 public class EfUserRepository(
     IDbContextFactory<WeavenestDbContext> contextFactory,
-    IEncryptionService encryption) : IUserRepository
+    IEncryptionService encryption,
+    ILogger<EfUserRepository> logger) : IUserRepository
 {
     public async Task<User?> GetByUsernameAsync(string username)
     {
@@ -23,7 +25,10 @@ public class EfUserRepository(
         if (user is not null && encryption.IsReady && user.UserPrompt is not null)
         {
             try { user.UserPrompt = encryption.Decrypt(user.UserPrompt); }
-            catch { /* May be unencrypted (pre-migration) */ }
+            catch (Exception ex)
+            {
+                logger.LogWarning(ex, "Failed to decrypt user prompt for user {UserId}, may be pre-migration plaintext", userId);
+            }
         }
 
         return user;

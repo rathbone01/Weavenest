@@ -110,19 +110,22 @@
     [Parameter]
     public Guid SessionId { get; set; }
 
+    [Parameter]
+    public Guid UserId { get; set; }
+
     private int ToolCallCount => ToolCalls.Count(m => m.Role == "tool_call");
 
     private async Task RemoveDomain(string domain)
     {
         WhitelistedDomains.Remove(domain);
-        await ChatRepo.RemoveWhitelistedDomainAsync(SessionId, domain);
+        await ChatRepo.RemoveWhitelistedDomainAsync(UserId, SessionId, domain);
         StateHasChanged();
     }
 
     private async Task ClearAllDomains()
     {
         WhitelistedDomains.Clear();
-        await ChatRepo.ClearWhitelistedDomainsAsync(SessionId);
+        await ChatRepo.ClearWhitelistedDomainsAsync(UserId, SessionId);
         StateHasChanged();
     }
 

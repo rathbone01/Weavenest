@@ -79,10 +79,10 @@
 
         try
         {
-            var token = await AuthService.LoginAsync(_username, _password);
+            var (token, error) = await AuthService.LoginAsync(_username, _password);
             if (token is null)
             {
-                _errorMessage = "Invalid username or password.";
+                _errorMessage = error ?? "Invalid username or password.";
                 return;
             }
 

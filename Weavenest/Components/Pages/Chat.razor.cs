@@ -91,6 +91,7 @@ public partial class Chat : IDisposable
     // Session-load race guard — incremented each time OnParametersSetAsync starts
     // so that stale DB results from a previous navigation don't overwrite the current session.
     private int _loadGeneration;
+    private Guid? _userId;
 
     // Streaming mode state
     private bool _isStreaming;
@@ -109,6 +110,7 @@ public partial class Chat : IDisposable
 
     protected override async Task OnInitializedAsync()
     {
+        _userId = await UserIdentity.GetCurrentUserIdAsync();
         await LoadModels();
         await LoadUserPromptIfNeeded();
     }
@@ -140,7 +142,9 @@ public partial class Chat : IDisposable
                 return;
             }
 
-            var session = await ChatRepo.GetSessionByIdAsync(SessionId.Value);
+            var session = _userId.HasValue
+                ? await ChatRepo.GetSessionByIdAsync(_userId.Value, SessionId.Value)
+                : null;
 
             // After the await: if the user clicked another session while we were
             // loading, a newer OnParametersSetAsync has started — discard this result.
@@ -190,7 +194,8 @@ public partial class Chat : IDisposable
     {
         try
         {
-            var domains = await ChatRepo.GetWhitelistedDomainsAsync(sessionId);
+            if (!_userId.HasValue) return;
+            var domains = await ChatRepo.GetWhitelistedDomainsAsync(_userId.Value, sessionId);
             _sessionWhitelistedDomains = new HashSet<string>(domains, StringComparer.OrdinalIgnoreCase);
         }
         catch (Exception ex)
@@ -337,7 +342,7 @@ public partial class Chat : IDisposable
         var activeSession = _currentSession;
         var activeModel = _selectedModel;
 
-        var userMsg = await ChatRepo.AddMessageAsync(activeSession.Id, ChatRole.User, userText);
+        var userMsg = await ChatRepo.AddMessageAsync(_userId!.Value, activeSession.Id, ChatRole.User, userText);
         activeSession.Messages.Add(userMsg);
 
         if (!_isProcessing)
@@ -407,6 +412,7 @@ public partial class Chat : IDisposable
             HandleThinkingFallback();
 
             var assistantMsg = await ChatRepo.AddMessageAsync(
+                _userId!.Value,
                 activeSession.Id,
                 ChatRole.Assistant,
                 _streamingMessage.Content,
@@ -420,6 +426,7 @@ public partial class Chat : IDisposable
             if (!string.IsNullOrEmpty(_streamingMessage.Content))
             {
                 var assistantMsg = await ChatRepo.AddMessageAsync(
+                    _userId!.Value,
                     activeSession.Id,
                     ChatRole.Assistant,
                     _streamingMessage.Content,
@@ -511,6 +518,7 @@ public partial class Chat : IDisposable
                 ct: _processingCts!.Token);
 
             var assistantMsg = await ChatRepo.AddMessageAsync(
+                _userId!.Value,
                 activeSession.Id,
                 ChatRole.Assistant,
                 result.AssistantContent,
@@ -664,7 +672,8 @@ public partial class Chat : IDisposable
         {
             ["ToolCalls"] = _displayMessages.ToList(),
             ["WhitelistedDomains"] = _sessionWhitelistedDomains,
-            ["SessionId"] = _currentSession.Id
+            ["SessionId"] = _currentSession.Id,
+            ["UserId"] = _userId!.Value
         };
 
         var options = new DialogOptions
@@ -742,7 +751,7 @@ public partial class Chat : IDisposable
     {
         try
         {
-            await ChatRepo.AddWhitelistedDomainAsync(sessionId, domain);
+            await ChatRepo.AddWhitelistedDomainAsync(_userId!.Value, sessionId, domain);
         }
         catch (Exception ex)
         {
